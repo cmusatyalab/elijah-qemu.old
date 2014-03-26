@@ -35,6 +35,18 @@ struct MigrationState
     int shared;
 };
 
+#define QEMU_MMAP_MAX 16
+
+struct qemu_mmap_entry
+{
+	void *addr;
+	size_t length;
+};
+
+extern int qemu_mmap_idx;
+extern struct qemu_mmap_entry qemu_mmap_entries[QEMU_MMAP_MAX];
+
+
 void process_incoming_migration(QEMUFile *f);
 
 int qemu_start_incoming_migration(const char *uri, Error **errp);
@@ -60,11 +72,17 @@ int unix_start_outgoing_migration(MigrationState *s, const char *path);
 
 int fd_start_incoming_migration(const char *path);
 
+int raw_start_incoming_migration(const char *path);
+
 int fd_start_outgoing_migration(MigrationState *s, const char *fdname);
+
+int raw_start_outgoing_migration(MigrationState *s, const char *fdname);
 
 void migrate_fd_error(MigrationState *s);
 
 void migrate_fd_connect(MigrationState *s);
+
+void migrate_fd_connect_raw(MigrationState *s);
 
 void add_migration_state_change_notifier(Notifier *notify);
 void remove_migration_state_change_notifier(Notifier *notify);
@@ -77,6 +95,7 @@ uint64_t ram_bytes_transferred(void);
 uint64_t ram_bytes_total(void);
 
 int ram_save_live(QEMUFile *f, int stage, void *opaque);
+void ram_save_raw(QEMUFile *f, void *opaque);
 int ram_load(QEMUFile *f, void *opaque, int version_id);
 
 /**
@@ -92,5 +111,8 @@ void migrate_add_blocker(Error *reason);
  * @reason - the error blocking migration
  */
 void migrate_del_blocker(Error *reason);
+
+void set_use_raw(QEMUFile *file, int value);
+int use_raw(QEMUFile *file);
 
 #endif

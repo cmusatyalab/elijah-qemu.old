@@ -73,7 +73,10 @@ int qemu_start_incoming_migration(const char *uri, Error **errp)
     else if (strstart(uri, "unix:", &p))
         ret = unix_start_incoming_migration(p);
     else if (strstart(uri, "fd:", &p))
-        ret = fd_start_incoming_migration(p);
+        //ret = fd_start_incoming_migration(p);
+    	ret = raw_start_incoming_migration(p);
+    else if (strstart(uri, "raw:", &p))
+    	ret = raw_start_incoming_migration(p);
 #endif
     else {
         fprintf(stderr, "unknown migration protocol: %s\n", uri);
@@ -350,6 +353,31 @@ void migrate_fd_connect(MigrationState *s)
                                       migrate_fd_put_ready,
                                       migrate_fd_wait_for_unfreeze,
                                       migrate_fd_close);
+    set_use_raw(s->file, 0);
+
+    DPRINTF("beginning savevm\n");
+    ret = qemu_savevm_state_begin(s->file, s->blk, s->shared);
+    if (ret < 0) {
+        DPRINTF("failed, %d\n", ret);
+        migrate_fd_error(s);
+        return;
+    }
+    migrate_fd_put_ready(s);
+}
+
+void migrate_fd_connect_raw(MigrationState *s)
+{
+    int ret;
+
+    s->state = MIG_STATE_ACTIVE;
+    s->file = qemu_fopen_ops_buffered(s,
+                                      s->bandwidth_limit,
+                                      migrate_fd_put_buffer,
+                                      migrate_fd_put_ready,
+                                      migrate_fd_wait_for_unfreeze,
+                                      migrate_fd_close);
+
+    set_use_raw(s->file, 1);
 
     DPRINTF("beginning savevm\n");
     ret = qemu_savevm_state_begin(s->file, s->blk, s->shared);
@@ -393,6 +421,7 @@ void qmp_migrate(const char *uri, bool has_blk, bool blk,
                  bool has_inc, bool inc, bool has_detach, bool detach,
                  Error **errp)
 {
+	DPRINTF("migration: start migration at %s\n", uri);
     MigrationState *s = migrate_get_current();
     const char *p;
     int ret;
@@ -421,7 +450,10 @@ void qmp_migrate(const char *uri, bool has_blk, bool blk,
     } else if (strstart(uri, "unix:", &p)) {
         ret = unix_start_outgoing_migration(s, p);
     } else if (strstart(uri, "fd:", &p)) {
-        ret = fd_start_outgoing_migration(s, p);
+        //ret = fd_start_outgoing_migration(s, p);
+        ret = raw_start_outgoing_migration(s, p);
+    } else if (strstart(uri, "raw:", &p)) {
+        ret = raw_start_outgoing_migration(s, p);
 #endif
     } else {
         error_set(errp, QERR_INVALID_PARAMETER_VALUE, "uri", "a valid migration protocol");

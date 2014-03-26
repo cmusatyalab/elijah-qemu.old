@@ -2735,6 +2735,20 @@ the @var{simple} tracing backend.
 @end table
 ETEXI
 
+DEF("cloudlet", HAS_ARG, QEMU_OPTION_cloudlet,
+    "-cloudlet [logfile=<log file>]\n"
+    "                specify cloudlet options\n",
+    QEMU_ARCH_ALL)
+STEXI
+HXCOMM This line is not accurate, as some sub-options are backend-specific but
+HXCOMM HX does not support conditional compilation of text.
+@item -cloudlet [logfile=@var{name}]
+@findex -cloudlet
+
+Specify cloudlet options.
+
+ETEXI
+
 DEF("qtest", HAS_ARG, QEMU_OPTION_qtest,
     "-qtest CHR      specify tracing options\n",
     QEMU_ARCH_ALL)

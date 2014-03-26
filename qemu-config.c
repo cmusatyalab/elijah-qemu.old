@@ -122,6 +122,20 @@ static QemuOptsList qemu_drive_opts = {
     },
 };
 
+
+QemuOptsList qemu_cloudlet_opts = {
+	.name = "cloudlet",
+	.implied_opt_name = "uuid",
+	.head = QTAILQ_HEAD_INITIALIZER(qemu_cloudlet_opts.head),
+	.desc = {
+		{
+			.name = "logfile",
+			.type = QEMU_OPT_STRING,
+		},
+		{ /* end if list */ }
+	},
+};
+
 static QemuOptsList qemu_iscsi_opts = {
     .name = "iscsi",
     .head = QTAILQ_HEAD_INITIALIZER(qemu_iscsi_opts.head),

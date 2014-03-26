@@ -133,6 +133,8 @@ static void tcp_accept_incoming_migration(void *opaque)
         goto out;
     }
 
+    set_use_raw(f, 0);
+
     process_incoming_migration(f);
     qemu_fclose(f);
 out:

@@ -168,6 +168,8 @@ int main(int argc, char **argv)
 
 #include "ui/qemu-spice.h"
 
+#include "cloudlet/qemu-cloudlet.h"
+
 //#define DEBUG_NET
 //#define DEBUG_SLIRP
 
@@ -232,6 +234,17 @@ int boot_menu;
 uint8_t *boot_splash_filedata;
 int boot_splash_filedata_size;
 uint8_t qemu_extra_params_fw[2];
+
+
+#define DEBUG_VL
+#ifdef DEBUG_VL
+#define DPRINTF(fmt, ...) \
+    do { printf("vl: " fmt, ## __VA_ARGS__); } while (0)
+#else
+#define DPRINTF(fmt, ...) \
+    do { } while (0)
+#endif
+
 
 typedef struct FWBootEntry FWBootEntry;
 
@@ -1572,7 +1585,7 @@ static void main_loop(void)
 
 static void version(void)
 {
-    printf("QEMU emulator version " QEMU_VERSION QEMU_PKGVERSION ", Copyright (c) 2003-2008 Fabrice Bellard\n");
+    printf("QEMU emulator version " QEMU_VERSION QEMU_PKGVERSION ", Copyright (c) 2003-2008 Fabrice Bellard, Cloudlet Edition\n");
 }
 
 static void help(int exitcode)
@@ -2265,6 +2278,9 @@ int qemu_init_main_loop(void)
 {
     return main_loop_init();
 }
+
+// TODO: Use QEMU Monitor
+QEMUFile *qemu_memfile = NULL;
 
 int main(int argc, char **argv, char **envp)
 {
@@ -3150,6 +3166,24 @@ int main(int argc, char **argv, char **envp)
                 incoming = optarg;
                 runstate_set(RUN_STATE_INMIGRATE);
                 break;
+            case QEMU_OPTION_cloudlet:
+				opts = qemu_opts_parse(&qemu_cloudlet_opts, optarg, 1);
+				if (!opts) {
+					exit(1);
+				}
+
+				const char *logfile_path = qemu_opt_get(opts, "logfile");
+				if (logfile_path){
+					if(!cloudlet_init(logfile_path)){
+                        fprintf(stderr, "open %s: %s\n", optarg, strerror(errno));
+                        exit(1);
+					}
+                    fprintf(stderr, "cloudlet logfile path opened at : %s\n", logfile_path);
+				}else{
+                    fprintf(stderr, "cloudlet logfile path does not given\n");
+				}
+
+            	break;
             case QEMU_OPTION_nodefaults:
                 default_serial = 0;
                 default_parallel = 0;
@@ -3471,7 +3505,8 @@ int main(int argc, char **argv, char **envp)
     default_drive(default_sdcard, snapshot, machine->use_scsi,
                   IF_SD, 0, SD_OPTS);
 
-    register_savevm_live(NULL, "ram", 0, 4, NULL, ram_save_live, NULL,
+    //register_savevm_live(NULL, "ram", 0, 4, NULL, ram_save_live, NULL, ram_load, NULL);
+    register_savevm_live(NULL, "ram", 0, 4, NULL, NULL, ram_save_raw,
                          ram_load, NULL);
 
     if (nb_numa_nodes > 0) {
@@ -3693,5 +3728,20 @@ int main(int argc, char **argv, char **envp)
     net_cleanup();
     res_free();
 
+	DPRINTF("Start munmap\n");
+    if (qemu_memfile) {
+	    int i;
+	    for (i = 0; i < qemu_mmap_idx; i++){
+		    int ret = munmap(qemu_mmap_entries[i].addr, qemu_mmap_entries[i].length);
+			if (ret != 0){
+				fprintf(stderr, "failed to munmap, %s\n", strerror(errno));
+			}else{
+				DPRINTF("Unmap count : %d\n", i);
+			}
+		}
+	    qemu_fclose(qemu_memfile);
+    }
+
+    cloudlet_end();
     return 0;
 }

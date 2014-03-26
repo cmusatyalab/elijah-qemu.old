@@ -95,6 +95,16 @@
 #define ARP_PTYPE_IP 0x0800
 #define ARP_OP_REQUEST_REV 0x3
 
+#define DEBUG_SAVEVM
+
+#ifdef DEBUG_SAVEVM
+#define DPRINTF(fmt, ...) \
+    do { printf("savevm: " fmt, ## __VA_ARGS__); } while (0)
+#else
+#define DPRINTF(fmt, ...) \
+    do { } while (0)
+#endif
+
 static int announce_self_create(uint8_t *buf,
 				uint8_t *mac_addr)
 {
@@ -177,6 +187,7 @@ struct QEMUFile {
     uint8_t buf[IO_BUF_SIZE];
 
     int last_error;
+    int use_raw;
 };
 
 typedef struct QEMUFileStdio
@@ -224,11 +235,14 @@ static int stdio_get_buffer(void *opaque, uint8_t *buf, int64_t pos, int size)
     QEMUFileStdio *s = opaque;
     FILE *fp = s->stdio_file;
     int bytes;
+    int ret;
 
     do {
         clearerr(fp);
+        ret = fseek(fp, (long)pos, SEEK_SET);
         bytes = fread(buf, 1, size, fp);
-    } while ((bytes == 0) && ferror(fp) && (errno == EINTR));
+    } while ((ret != 0) && (bytes == 0) && ferror(fp) && (errno == EINTR));
+
     return bytes;
 }
 
@@ -550,7 +564,7 @@ void qemu_file_put_notify(QEMUFile *f)
     f->put_buffer(f->opaque, NULL, 0, 0);
 }
 
-void qemu_put_buffer(QEMUFile *f, const uint8_t *buf, int size)
+void qemu_put_buffer(QEMUFile *f, const uint8_t *buf, size_t size)
 {
     int l;
 
@@ -1394,6 +1408,7 @@ int vmstate_load_state(QEMUFile *f, const VMStateDescription *vmsd,
 {
     VMStateField *field = vmsd->fields;
     int ret;
+    bool skip = false;
 
     if (version_id > vmsd->version_id) {
         return -EINVAL;
@@ -1409,6 +1424,12 @@ int vmstate_load_state(QEMUFile *f, const VMStateDescription *vmsd,
         if (ret)
             return ret;
     }
+
+    if (!strcmp(vmsd->name, "mc146818rtc")) {
+//	    fprintf(stderr, "%s: skipping RTC state\n", __func__);
+	    skip = true;
+    }
+
     while(field->name) {
         if ((field->field_exists &&
              field->field_exists(opaque, version_id)) ||
@@ -1447,7 +1468,12 @@ int vmstate_load_state(QEMUFile *f, const VMStateDescription *vmsd,
                 if (field->flags & VMS_STRUCT) {
                     ret = vmstate_load_state(f, field->vmsd, addr, field->vmsd->version_id);
                 } else {
-                    ret = field->info->get(f, addr, size);
+					if (!skip)
+						ret = field->info->get(f, addr, size);
+					else {
+						qemu_fseek(f, size, SEEK_CUR);
+						ret = 0;
+					}
 
                 }
                 if (ret < 0) {
@@ -1457,11 +1483,15 @@ int vmstate_load_state(QEMUFile *f, const VMStateDescription *vmsd,
         }
         field++;
     }
-    ret = vmstate_subsection_load(f, vmsd, opaque);
+
+    if (!skip)
+	    ret = vmstate_subsection_load(f, vmsd, opaque);
+    else
+	    ret = 0;
     if (ret != 0) {
         return ret;
     }
-    if (vmsd->post_load) {
+    if (vmsd->post_load && !skip) {
         return vmsd->post_load(opaque, version_id);
     }
     return 0;
@@ -1887,8 +1917,9 @@ int qemu_loadvm_state(QEMUFile *f)
     }
 
     v = qemu_get_be32(f);
-    if (v != QEMU_VM_FILE_MAGIC)
+    if (v != QEMU_VM_FILE_MAGIC){
         return -EINVAL;
+	}
 
     v = qemu_get_be32(f);
     if (v == QEMU_VM_FILE_VERSION_COMPAT) {
@@ -2352,6 +2383,16 @@ void do_info_snapshots(Monitor *mon)
     g_free(sn_tab);
     g_free(available_snapshots);
 
+}
+
+void set_use_raw(QEMUFile *file, int value)
+{
+	file->use_raw = value;
+}
+
+int use_raw(QEMUFile *file)
+{
+	return file->use_raw;
 }
 
 void vmstate_register_ram(MemoryRegion *mr, DeviceState *dev)

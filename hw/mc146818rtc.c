@@ -511,9 +511,18 @@ static void rtc_set_date_from_host(ISADevice *dev)
 
 static int rtc_post_load(void *opaque, int version_id)
 {
-#ifdef TARGET_I386
     RTCState *s = opaque;
+    ISADevice *dev = &s->dev;
+    int64_t now;
 
+    /* Update out-of-sync time in saved device state */
+    rtc_set_date_from_host(dev);
+    now = qemu_get_clock_ns(rtc_clock);
+    s->next_second_time = now + (get_ticks_per_sec() * 99) / 100;
+    qemu_mod_timer(s->second_timer2, s->next_second_time);
+    rtc_timer_update(s, now);
+
+#ifdef TARGET_I386
     if (version_id >= 2) {
         if (s->lost_tick_policy == LOST_TICK_SLEW) {
             rtc_coalesced_timer_update(s);

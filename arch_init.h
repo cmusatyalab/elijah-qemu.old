@@ -30,4 +30,8 @@ int tcg_available(void);
 int kvm_available(void);
 int xen_available(void);
 
+int ram_load_raw(QEMUFile *f, void *opaque, int version_id);
+int ram_load_live(QEMUFile *f, void *opaque, int version_id);
+
+
 #endif

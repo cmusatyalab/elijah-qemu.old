@@ -9,6 +9,18 @@
 
 #include "dma.h"
 #include "trace.h"
+#include "cloudlet/qemu-cloudlet.h"
+
+
+#define DEBUG_DMA
+
+#ifdef DEBUG_DMA
+#define DPRINTF(fmt, ...) \
+    do { printf("DMA: " fmt, ## __VA_ARGS__); } while (0)
+#else
+#define DPRINTF(fmt, ...) \
+    do { } while (0)
+#endif
 
 void qemu_sglist_init(QEMUSGList *qsg, int alloc_hint)
 {
@@ -119,7 +131,7 @@ static void dma_bdrv_cb(void *opaque, int ret)
         dma_complete(dbs, ret);
         return;
     }
-
+    uint64_t cur_sector_number = dbs->sector_num;
     while (dbs->sg_cur_index < dbs->sg->nsg) {
         cur_addr = dbs->sg->sg[dbs->sg_cur_index].base + dbs->sg_cur_byte;
         cur_len = dbs->sg->sg[dbs->sg_cur_index].len - dbs->sg_cur_byte;
@@ -127,6 +139,15 @@ static void dma_bdrv_cb(void *opaque, int ret)
                                       dbs->dir != DMA_DIRECTION_TO_DEVICE);
         if (!mem)
             break;
+
+        uint64_t cur_mem_offset = 0;
+        for(cur_mem_offset = 0; cur_mem_offset < cur_len; cur_mem_offset += KRHA_PAGE_SIZE){
+        	uint64_t snum = cur_sector_number + cur_mem_offset/KRHA_SECTOR_SIZE;
+        	printlog("dma, memory_addr:%ld, disk_sector:%ld, length:%d, from_disk:%d, disk_access_aligned:%ld\n", \
+        			(cur_addr + cur_mem_offset), snum, KRHA_PAGE_SIZE, dbs->dir, snum%8);
+        }
+        cur_sector_number += (cur_len/KRHA_SECTOR_SIZE);
+
         qemu_iovec_add(&dbs->iov, mem, cur_len);
         dbs->sg_cur_byte += cur_len;
         if (dbs->sg_cur_byte == dbs->sg->sg[dbs->sg_cur_index].len) {

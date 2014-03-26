@@ -31,6 +31,8 @@
 #include "qemu-coroutine.h"
 #include "qmp-commands.h"
 #include "qemu-timer.h"
+#include "cloudlet/qemu-cloudlet.h"
+
 
 #ifdef CONFIG_BSD
 #include <sys/types.h>
@@ -3800,6 +3802,8 @@ int coroutine_fn bdrv_co_discard(BlockDriverState *bs, int64_t sector_num,
 
 int bdrv_discard(BlockDriverState *bs, int64_t sector_num, int nb_sectors)
 {
+	printlog("bdrv_discard, sector_num:%ld, sector_size:%d\n", sector_num, nb_sectors);
+
     Coroutine *co;
     RwCo rwco = {
         .bs = bs,
