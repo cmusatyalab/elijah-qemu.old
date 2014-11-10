@@ -3802,7 +3802,8 @@ int coroutine_fn bdrv_co_discard(BlockDriverState *bs, int64_t sector_num,
 
 int bdrv_discard(BlockDriverState *bs, int64_t sector_num, int nb_sectors)
 {
-	printlog("bdrv_discard, sector_num:%ld, sector_size:%d\n", sector_num, nb_sectors);
+    printlog(true, "bdrv_discard, sector_num:%ld, sector_size:%d\n", 
+            sector_num, nb_sectors);
 
     Coroutine *co;
     RwCo rwco = {

@@ -8,7 +8,7 @@ extern QEMUFile *qemu_memfile;
 int cloudlet_init(const char *logfile_path);
 int cloudlet_end(void);
 
-int printlog(const char* format, ...);
+int printlog(bool flush, const char* format, ...);
 
 #endif /* QEMU_CLOUDLET_H */
 

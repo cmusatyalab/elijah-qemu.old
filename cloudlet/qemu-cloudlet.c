@@ -7,35 +7,38 @@
 
 static FILE *cloudlet_logfile = NULL;
 
-int printlog(const char* format, ...){
+int printlog(bool flush, const char* format, ...){
+    if(cloudlet_logfile){
+        struct timeval tv;
+        gettimeofday(&tv, NULL);
+        fprintf(cloudlet_logfile, "time:%ld.%ld, ", tv.tv_sec, tv.tv_usec);
 
-	if(cloudlet_logfile){
-		struct timeval tv;
-		gettimeofday(&tv, NULL);
-		fprintf(cloudlet_logfile, "time:%ld.%ld, ", tv.tv_sec, tv.tv_usec);
+        va_list argptr;
+        va_start(argptr, format);
+        vfprintf(cloudlet_logfile, format, argptr);
+        va_end(argptr);
 
-		va_list argptr;
-		va_start(argptr, format);
-		vfprintf(cloudlet_logfile, format, argptr);
-		va_end(argptr);
-		return 1;
-	}
-	return 0;
+        if(flush){
+            fflush(cloudlet_logfile);
+        }
+        return 1;
+    }
+    return 0;
 }
 
 
 int cloudlet_init(const char *logfile_path){
-	cloudlet_logfile = fopen(logfile_path, "w+");
-	if (cloudlet_logfile == NULL) {
-		return 0;
-	}
-	return 1;
+    cloudlet_logfile = fopen(logfile_path, "w+");
+    if (cloudlet_logfile == NULL) {
+        return 0;
+    }
+    return 1;
 }
 
 int cloudlet_end(void){
     if (cloudlet_logfile) {
-    	fclose(cloudlet_logfile);
-    	return 1;
+        fclose(cloudlet_logfile);
+        return 1;
     }
     return 0;
 }
