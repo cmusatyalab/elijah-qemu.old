@@ -170,6 +170,9 @@ void qemu_announce_self(void)
 
 #define IO_BUF_SIZE 32768
 
+#define BLOB_SIZE 4096
+typedef uint64_t blob_off_t;
+
 struct QEMUFile {
     QEMUFilePutBufferFunc *put_buffer;
     QEMUFileGetBufferFunc *get_buffer;
@@ -188,7 +191,16 @@ struct QEMUFile {
 
     int last_error;
     int use_raw;
+
+    blob_off_t blob_pos;
+//    int debug_fd;
 };
+
+uint64_t get_blob_pos(struct QEMUFile *f);
+uint64_t get_blob_pos(struct QEMUFile *f)
+{
+    return (uint64_t)f->blob_pos;
+}
 
 typedef struct QEMUFileStdio
 {
@@ -444,6 +456,9 @@ QEMUFile *qemu_fopen_ops(void *opaque, QEMUFilePutBufferFunc *put_buffer,
     f->set_rate_limit = set_rate_limit;
     f->get_rate_limit = get_rate_limit;
     f->is_write = 0;
+    f->blob_pos = 0;
+
+//    f->debug_fd = open("/tmp/debug.mem", O_WRONLY | O_CREAT | O_TRUNC, 0644);
 
     return f;
 }
@@ -549,6 +564,10 @@ int qemu_fclose(QEMUFile *f)
     int ret;
     qemu_fflush(f);
     ret = qemu_close(f);
+
+//    if (f->debug_fd >= 0)
+//	close(f->debug_fd);
+
     /* If any error was spotted before closing, we should report it
      * instead of the close() return value.
      */
@@ -575,12 +594,33 @@ void qemu_put_buffer(QEMUFile *f, const uint8_t *buf, size_t size)
     }
 
     while (!f->last_error && size > 0) {
+	if ((f->blob_pos % BLOB_SIZE) == 0) {
+	    blob_off_t *header = NULL;
+
+	    if (sizeof(blob_off_t) > IO_BUF_SIZE - f->buf_index)
+		qemu_fflush(f);
+
+	    header = (blob_off_t*)(f->buf + f->buf_index);
+	    *header = f->blob_pos;
+	    f->buf_index += sizeof(blob_off_t);
+
+	    if (f->buf_index >= IO_BUF_SIZE)
+		qemu_fflush(f);
+	}
+
         l = IO_BUF_SIZE - f->buf_index;
         if (l > size)
             l = size;
-        memcpy(f->buf + f->buf_index, buf, l);
+
+	if (l > (BLOB_SIZE - (f->blob_pos % BLOB_SIZE)))
+	    l = (BLOB_SIZE - (f->blob_pos % BLOB_SIZE));
+
+	memcpy(f->buf + f->buf_index, buf, l);
+//	if (f->debug_fd >= 0)
+//	    write(f->debug_fd, buf, l);
         f->is_write = 1;
-        f->buf_index += l;
+	f->buf_index += l;
+	f->blob_pos += l;
         buf += l;
         size -= l;
         if (f->buf_index >= IO_BUF_SIZE)
@@ -596,10 +636,48 @@ void qemu_put_byte(QEMUFile *f, int v)
         abort();
     }
 
+    if ((f->blob_pos % BLOB_SIZE) == 0) {
+	blob_off_t *header = NULL;
+
+	if (sizeof(blob_off_t) > IO_BUF_SIZE - f->buf_index)
+	    qemu_fflush(f);
+
+	header = (blob_off_t*)(f->buf + f->buf_index);
+	*header = f->blob_pos;
+	f->buf_index += sizeof(blob_off_t);
+
+        if (f->buf_index >= IO_BUF_SIZE)
+            qemu_fflush(f);
+    }
+
     f->buf[f->buf_index++] = v;
+//    {
+//	uint8_t b = v;
+//
+//	if (f->debug_fd >= 0)
+//	    write(f->debug_fd, &b, 1);
+//    }
+
     f->is_write = 1;
+    f->blob_pos += sizeof(*f->buf);
     if (f->buf_index >= IO_BUF_SIZE)
         qemu_fflush(f);
+}
+
+/* Needs to be used with BLOB_SIZE-aligned pos */
+void set_blob_pos(QEMUFile *f, uint64_t pos);
+void set_blob_pos(QEMUFile *f, uint64_t pos)
+{
+    void *padding = NULL;
+
+    if ((f->blob_pos % BLOB_SIZE) != 0) {
+	padding = g_malloc0(BLOB_SIZE - (f->blob_pos % BLOB_SIZE));
+	qemu_put_buffer(f, padding, BLOB_SIZE - (f->blob_pos % BLOB_SIZE));
+	qemu_fflush(f);
+	g_free(padding);
+    }
+
+    f->blob_pos = pos;
 }
 
 static void qemu_file_skip(QEMUFile *f, int size)
@@ -654,6 +732,9 @@ int qemu_get_buffer(QEMUFile *f, uint8_t *buf, int size)
         pending -= res;
         done += res;
     }
+
+    f->blob_pos += size;
+
     return done;
 }
 
@@ -681,6 +762,9 @@ int qemu_get_byte(QEMUFile *f)
 
     result = qemu_peek_byte(f, 0);
     qemu_file_skip(f, 1);
+
+    f->blob_pos += 1;
+
     return result;
 }
 
@@ -691,9 +775,12 @@ int64_t qemu_ftell(QEMUFile *f)
 
 int64_t qemu_fseek(QEMUFile *f, int64_t pos, int whence)
 {
+    blob_off_t blob_pos = pos;
+
     if (whence == SEEK_SET) {
         /* nothing to do */
     } else if (whence == SEEK_CUR) {
+	blob_pos = f->blob_pos + pos;
         pos += qemu_ftell(f);
     } else {
         /* SEEK_END not supported */
@@ -707,6 +794,9 @@ int64_t qemu_fseek(QEMUFile *f, int64_t pos, int whence)
         f->buf_index = 0;
         f->buf_size = 0;
     }
+
+    f->blob_pos = blob_pos;
+
     return pos;
 }
 

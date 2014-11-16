@@ -295,6 +295,10 @@ static void sort_ram_list(void) {
 	g_free(blocks);
 }
 
+/* defined in savevm.c */
+uint64_t get_blob_pos(struct QEMUFile *f);
+void set_blob_pos(QEMUFile *f, uint64_t pos);
+
 void ram_save_raw(QEMUFile *f, void *opaque) {
 	RAMBlock *block;
 
@@ -315,18 +319,19 @@ void ram_save_raw(QEMUFile *f, void *opaque) {
 		qemu_put_byte(f, strlen(block->idstr));
 		qemu_put_buffer(f, (uint8_t *) block->idstr, strlen(block->idstr));
 		qemu_put_be64(f, block->length);
-
-		DPRINTF("ram_save_raw(): block id - %s, length - %llu, addr - %p\n",
-				block->idstr, (unsigned long long) block->length, block->host);
-
 	}
+
+	g_random_set_seed(12345);
 
 	/* flush all blocks */
 	QLIST_FOREACH(block, &ram_list.blocks, next) {
+		uint32_t i, j, temp, *random;
+		uint32_t num_pages;
+		uint64_t blob_start_pos;
 		ram_addr_t padding;
-		 DPRINTF("ram_save(): flushing block id == %s\n", block->idstr);
-		 DPRINTF("ram_save(): writing at == %llu\n", \
-				 (unsigned long long) qemu_ftell(f));
+		DPRINTF("ram_save(): flushing block id == %s\n", block->idstr);
+		DPRINTF("ram_save(): writing at == %llu\n",		\
+			(unsigned long long) qemu_ftell(f));
 
 		// Do not save ivshmem
 		if (strstr(block->idstr, "ivshmem.bar2") != NULL)
@@ -337,8 +342,12 @@ void ram_save_raw(QEMUFile *f, void *opaque) {
 		qemu_put_byte(f, strlen(block->idstr));
 		qemu_put_buffer(f, (uint8_t *) block->idstr, strlen(block->idstr));
 
-		/* Add padding so block is aligned at page boundary in saved file. */
-		padding = qemu_ftell(f) & (TARGET_PAGE_SIZE - 1);
+		/*
+		 * Add padding so block is aligned at page boundary in saved file.
+		 * Padding needs to be calculated using get_blob_pos(), not qemu_ftell().
+		 */
+		// padding = qemu_ftell(f) & (TARGET_PAGE_SIZE - 1);
+		padding = get_blob_pos(f) & (TARGET_PAGE_SIZE - 1);
 		padding = TARGET_PAGE_SIZE - padding;
 		while (padding-- > 0)
 			qemu_put_byte(f, 0);
@@ -346,7 +355,29 @@ void ram_save_raw(QEMUFile *f, void *opaque) {
 		if (qemu_ftell(f) & (TARGET_PAGE_SIZE - 1))
 			DPRINTF("flushing block [%s] NOT aligned\n", block->idstr);
 
-		qemu_put_buffer(f, block->host, block->length);
+		blob_start_pos = get_blob_pos(f);
+		num_pages = block->length / TARGET_PAGE_SIZE;
+
+		/* first generate random order in which pages (= blobs) are writen */
+		random = g_malloc(sizeof(uint32_t) * num_pages);
+		for (i = 0; i < num_pages; i++)
+			random[i] = i;
+		for (i = num_pages - 1; i > 0; i--) {
+			j = g_random_int() % (i + 1);
+			temp = random[j];
+			random[j] = random[i];
+			random[i] = temp;
+		}
+
+		for (i = 0; i < num_pages; i++) {
+			set_blob_pos(f, blob_start_pos + TARGET_PAGE_SIZE * random[i]);
+			qemu_put_buffer(f, block->host + TARGET_PAGE_SIZE * random[i],
+					TARGET_PAGE_SIZE);
+		}
+
+		g_free(random);
+
+		set_blob_pos(f, blob_start_pos + TARGET_PAGE_SIZE * num_pages);
 	}
 
 	qemu_put_be64(f, RAM_SAVE_FLAG_EOS);
@@ -519,7 +550,6 @@ int ram_load_raw(QEMUFile *f, void *opaque, int version_id) {
 	}
 
 	do {
-
 		addr = qemu_get_be64(f);
 
 		flags = addr & ~TARGET_PAGE_MASK;
@@ -559,8 +589,7 @@ int ram_load_raw(QEMUFile *f, void *opaque, int version_id) {
 							"accept migration\n", id);
 					return -EINVAL;
 				} else {
-					DPRINTF(
-							"Processing valid ramblock \"%s\", length == %llu\n",
+					DPRINTF("Processing valid ramblock \"%s\", length == %llu\n",
 							id, (unsigned long long) length);
 				}
 
@@ -597,14 +626,12 @@ int ram_load_raw(QEMUFile *f, void *opaque, int version_id) {
 			if (block) {
 				void *mapped_addr;
 
-				// qemu_free(block->host);
-
 				DPRINTF(
 						"ram_load_raw(): mapping [%s], size: %llu, block->offset: %llu, host: %p\n",
 						block->idstr, (unsigned long long)block->length, (unsigned long long) block->offset, block->host);
 
 				mapped_addr = qemu_mmap_mem(f, (void *) block->host,
-						block->length);
+							    block->length);
 
 				DPRINTF("ram_load_raw(): mapped [%s], host: %p\n",
 						block->idstr, mapped_addr);

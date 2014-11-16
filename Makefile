@@ -301,6 +301,9 @@ endif
 ifneq ($(HELPERS-y),)
 	$(INSTALL_DIR) "$(DESTDIR)$(libexecdir)"
 	$(INSTALL_PROG) $(STRIP_OPT) $(HELPERS-y) "$(DESTDIR)$(libexecdir)"
+	chgrp kvm /usr/local/libexec/qemu-bridge-helper
+	chmod 754 /usr/local/libexec/qemu-bridge-helper
+	chmod u+s /usr/local/libexec/qemu-bridge-helper
 endif
 ifneq ($(BLOBS),)
 	set -e; for x in $(BLOBS); do \
