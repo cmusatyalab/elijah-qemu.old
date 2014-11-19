@@ -497,6 +497,7 @@ typedef struct RAMBlock {
 #if defined(__linux__) && !defined(TARGET_S390X)
     int fd;
 #endif
+    uint64_t blob_pos;
 } RAMBlock;
 
 typedef struct RAMList {

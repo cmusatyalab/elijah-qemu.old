@@ -13,6 +13,7 @@ def header_check(mem_file, out_file):
 
     blobs = set()
     blob_count = 0
+    blob_max = 0
     while True:
         header = mem_file.read(header_size)
         if len(header) != header_size:
@@ -29,10 +30,16 @@ def header_check(mem_file, out_file):
         if (blob_offset % BLOB_SIZE) != 0:
             print "offset in blob header is not aligned"
             return
-        else:
-            blobs.add(blob_offset / BLOB_SIZE)
+
+        blob = blob_offset / BLOB_SIZE
+        blobs.add(blob)
 
         blob_count += 1
+        if blob > blob_max:
+            blob_max = blob
+
+#        if blob_count < 200:
+#            print "blob %d" % (blob_offset / BLOB_SIZE)
 
         page = mem_file.read(BLOB_SIZE)
 
@@ -40,18 +47,20 @@ def header_check(mem_file, out_file):
             out_file.seek(blob_offset)
             out_file.write(page)
 
+        # last blob may be smaller than BLOB_SIZE
         if len(page) != BLOB_SIZE:
             break
 
-    # check all blobs are there
+    # check if all blobs up to max blob number are there
     passed = True
-    for b in range(blob_count):
+    for b in range(blob_max + 1):
         if b not in blobs:
             print "blob %d is missing"
             passed = False
+            break
 
     if passed:
-        print "test passed (%d blobs)" % blob_count
+        print "test passed (%d blobs, %d processed)" % (blob_max + 1, blob_count)
     else:
         print "test failed (some blobs are missing)"
 

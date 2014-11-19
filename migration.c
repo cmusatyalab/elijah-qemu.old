@@ -23,6 +23,8 @@
 #include "block-migration.h"
 #include "qmp-commands.h"
 
+#include <glib.h>
+
 //#define DEBUG_MIGRATION
 
 #ifdef DEBUG_MIGRATION
@@ -74,9 +76,11 @@ int qemu_start_incoming_migration(const char *uri, Error **errp)
         ret = unix_start_incoming_migration(p);
     else if (strstart(uri, "fd:", &p))
         //ret = fd_start_incoming_migration(p);
-    	ret = raw_start_incoming_migration(p);
+    	ret = raw_start_incoming_migration(p, RAW_SUSPEND);
     else if (strstart(uri, "raw:", &p))
-    	ret = raw_start_incoming_migration(p);
+    	ret = raw_start_incoming_migration(p, RAW_SUSPEND);
+    else if (strstart(uri, "rawlive:", &p))
+    	ret = raw_start_incoming_migration(p, RAW_LIVE);
 #endif
     else {
         fprintf(stderr, "unknown migration protocol: %s\n", uri);
@@ -353,7 +357,7 @@ void migrate_fd_connect(MigrationState *s)
                                       migrate_fd_put_ready,
                                       migrate_fd_wait_for_unfreeze,
                                       migrate_fd_close);
-    set_use_raw(s->file, 0);
+    set_use_raw(s->file, RAW_NONE);
 
     DPRINTF("beginning savevm\n");
     ret = qemu_savevm_state_begin(s->file, s->blk, s->shared);
@@ -365,9 +369,11 @@ void migrate_fd_connect(MigrationState *s)
     migrate_fd_put_ready(s);
 }
 
-void migrate_fd_connect_raw(MigrationState *s)
+void migrate_fd_connect_raw(MigrationState *s, raw_type type)
 {
     int ret;
+
+    g_assert(type != RAW_NONE);
 
     s->state = MIG_STATE_ACTIVE;
     s->file = qemu_fopen_ops_buffered(s,
@@ -377,7 +383,7 @@ void migrate_fd_connect_raw(MigrationState *s)
                                       migrate_fd_wait_for_unfreeze,
                                       migrate_fd_close);
 
-    set_use_raw(s->file, 1);
+    set_use_raw(s->file, type);
 
     DPRINTF("beginning savevm\n");
     ret = qemu_savevm_state_begin(s->file, s->blk, s->shared);
@@ -451,9 +457,11 @@ void qmp_migrate(const char *uri, bool has_blk, bool blk,
         ret = unix_start_outgoing_migration(s, p);
     } else if (strstart(uri, "fd:", &p)) {
         //ret = fd_start_outgoing_migration(s, p);
-        ret = raw_start_outgoing_migration(s, p);
+        ret = raw_start_outgoing_migration(s, p, RAW_SUSPEND);
     } else if (strstart(uri, "raw:", &p)) {
-        ret = raw_start_outgoing_migration(s, p);
+        ret = raw_start_outgoing_migration(s, p, RAW_SUSPEND);
+    } else if (strstart(uri, "rawlive:", &p)) {
+        ret = raw_start_outgoing_migration(s, p, RAW_LIVE);
 #endif
     } else {
         error_set(errp, QERR_INVALID_PARAMETER_VALUE, "uri", "a valid migration protocol");

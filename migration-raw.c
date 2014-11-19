@@ -74,10 +74,10 @@ static int raw_close(MigrationState *s)
     return 0;
 }
 
-int raw_start_outgoing_migration(MigrationState *s, const char *fdname)
+int raw_start_outgoing_migration(MigrationState *s, const char *fdname, raw_type type)
 {
-	DPRINTF("raw_migration: start migration at %s\n", fdname);
-	// for already created file
+    DPRINTF("raw_migration: start migration at %s\n", fdname);
+    // for already created file
     s->fd = monitor_get_fd(cur_mon, fdname);
     if (s->fd == -1) {
 		s->fd = open(fdname, O_CREAT | O_WRONLY | O_TRUNC, 00644);
@@ -97,7 +97,7 @@ int raw_start_outgoing_migration(MigrationState *s, const char *fdname)
     s->write = raw_write;
     s->close = raw_close;
 
-    migrate_fd_connect_raw(s);
+    migrate_fd_connect_raw(s, type);
     return 0;
 
 err_after_open:
@@ -116,7 +116,7 @@ static void raw_accept_incoming_migration(void *opaque)
     // qemu_fclose(f);
 }
 
-int raw_start_incoming_migration(const char *infd)
+int raw_start_incoming_migration(const char *infd, raw_type type)
 {
     int fd;
     int val;
@@ -127,24 +127,24 @@ int raw_start_incoming_migration(const char *infd)
     if ((errno == ERANGE && (val == INT_MAX|| val == INT_MIN)) || (val == 0)) {
         DPRINTF("Unable to apply qemu wrapper to file descriptor, fd:%d\n", val);
 		DPRINTF("Attempting to start an incoming migration via raw\n");
-		fd = open(infd, O_RDWR);
-    }else{
+		fd = open(infd, O_RDONLY);
+    } else {
         fd = val;
     }
 
-	f = qemu_fdopen(fd, "rb");
-	if(f == NULL) {
-		DPRINTF("Unable to apply qemu wrapper to file descriptor\n");
-		return -errno;
-	}
+    f = qemu_fdopen(fd, "rb");
+    if(f == NULL) {
+	DPRINTF("Unable to apply qemu wrapper to file descriptor\n");
+	return -errno;
+    }
 
-	// read ahead external header file, e.g. libvirt header
-	// to have mmap file for memory
-	long start_offset = lseek(fd, 0, SEEK_CUR);
-	DPRINTF("Migration file start at %ld\n", start_offset);
-	qemu_fseek(f, start_offset, SEEK_CUR);
+    // read ahead external header file, e.g. libvirt header
+    // to have mmap file for memory
+    long start_offset = lseek(fd, 0, SEEK_CUR);
+    DPRINTF("Migration file start at %ld\n", start_offset);
+    qemu_fseek(f, start_offset, SEEK_CUR);
 
-    set_use_raw(f, 1);
+    set_use_raw(f, type);
 
     qemu_set_fd_handler2(fd, NULL, raw_accept_incoming_migration, NULL, f);
 

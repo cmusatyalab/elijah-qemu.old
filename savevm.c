@@ -190,7 +190,7 @@ struct QEMUFile {
     uint8_t buf[IO_BUF_SIZE];
 
     int last_error;
-    int use_raw;
+    raw_type use_raw;
 
     blob_off_t blob_pos;
 //    int debug_fd;
@@ -1699,12 +1699,17 @@ int qemu_savevm_state_begin(QEMUFile *f, int blk_enable, int shared)
     QTAILQ_FOREACH(se, &savevm_handlers, entry) {
         int len;
 
-        if (se->save_live_state == NULL)
+        if (se->save_live_state == NULL || use_raw_suspend(f))
             continue;
 
         /* Section type */
-        qemu_put_byte(f, QEMU_VM_SECTION_START);
-        qemu_put_be32(f, se->section_id);
+	/* treat this as QEMU_VM_SECTION_FULL when RAW_LIVE */
+	if (use_raw_live(f))
+	    qemu_put_byte(f, QEMU_VM_SECTION_FULL);
+	else
+	    qemu_put_byte(f, QEMU_VM_SECTION_START);
+
+	qemu_put_be32(f, se->section_id);
 
         /* ID string */
         len = strlen(se->idstr);
@@ -1741,12 +1746,27 @@ int qemu_savevm_state_iterate(QEMUFile *f)
     int ret = 1;
 
     QTAILQ_FOREACH(se, &savevm_handlers, entry) {
-        if (se->save_live_state == NULL)
+	/*
+	 * only live savevm handler is for ram in current version,
+	 * so we can just skip when se->save_live_state is not NULL
+	 * and method is RAW_SUSPEND. Additionally, skip block live
+	 * handler when RAW_LIVE, as it writes some bytes even when
+	 * not really used.
+	 */
+        if (se->save_live_state == NULL ||
+	    use_raw_suspend(f) ||
+	    (use_raw_live(f) && !strcmp(se->idstr, "block")))
             continue;
 
-        /* Section type */
-        qemu_put_byte(f, QEMU_VM_SECTION_PART);
-        qemu_put_be32(f, se->section_id);
+	fprintf(stderr,"%s: calling savevm handler for %s\n",
+		__func__, se->idstr);
+
+	/* don't write section header if raw live */
+	if (!use_raw_live(f)) {
+	    /* Section type */
+	    qemu_put_byte(f, QEMU_VM_SECTION_PART);
+	    qemu_put_be32(f, se->section_id);
+	}
 
         ret = se->save_live_state(f, QEMU_VM_SECTION_PART, se->opaque);
         if (ret <= 0) {
@@ -1775,12 +1795,24 @@ int qemu_savevm_state_complete(QEMUFile *f)
     cpu_synchronize_all_states();
 
     QTAILQ_FOREACH(se, &savevm_handlers, entry) {
-        if (se->save_live_state == NULL)
+	/*
+	 * only live savevm handler is for ram in current version,
+	 * so we can just skip when se->save_live_state is not NULL
+	 * and method is RAW_SUSPEND. Additionally, skip block live
+	 * handler when RAW_LIVE, as it writes some bytes even when
+	 * not really used.
+	 */
+        if (se->save_live_state == NULL ||
+	    use_raw_suspend(f) ||
+	    (use_raw_live(f) && !strcmp(se->idstr, "block")))
             continue;
 
-        /* Section type */
-        qemu_put_byte(f, QEMU_VM_SECTION_END);
-        qemu_put_be32(f, se->section_id);
+	/* don't write section footer if raw live */
+	if (!use_raw_live(f)) {
+	    /* Section type */
+	    qemu_put_byte(f, QEMU_VM_SECTION_END);
+	    qemu_put_be32(f, se->section_id);
+	}
 
         ret = se->save_live_state(f, QEMU_VM_SECTION_END, se->opaque);
         if (ret < 0) {
@@ -1793,6 +1825,12 @@ int qemu_savevm_state_complete(QEMUFile *f)
 
 	if (se->save_state == NULL && se->vmsd == NULL)
 	    continue;
+
+	if ((!strcmp(se->idstr, "ram")) && !use_raw_suspend(f)) {
+	    fprintf(stderr, "%s: skipping RAM_SUSPEND savevm handler\n",
+		    __func__);
+	    continue;
+	}
 
         /* Section type */
         qemu_put_byte(f, QEMU_VM_SECTION_FULL);
@@ -2475,14 +2513,24 @@ void do_info_snapshots(Monitor *mon)
 
 }
 
-void set_use_raw(QEMUFile *file, int value)
+void set_use_raw(QEMUFile *file, raw_type type)
 {
-	file->use_raw = value;
+	file->use_raw = type;
 }
 
-int use_raw(QEMUFile *file)
+bool use_raw_none(QEMUFile *file)
 {
-	return file->use_raw;
+    return (file->use_raw == RAW_NONE);
+}
+
+bool use_raw_suspend(QEMUFile *file)
+{
+    return (file->use_raw == RAW_SUSPEND);
+}
+
+bool use_raw_live(QEMUFile *file)
+{
+    return (file->use_raw == RAW_LIVE);
 }
 
 void vmstate_register_ram(MemoryRegion *mr, DeviceState *dev)

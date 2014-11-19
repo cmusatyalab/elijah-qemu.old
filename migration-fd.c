@@ -122,7 +122,7 @@ int fd_start_incoming_migration(const char *infd)
         return -errno;
     }
 
-    set_use_raw(f, 0);
+    set_use_raw(f, RAW_NONE);
 
     qemu_set_fd_handler2(fd, NULL, fd_accept_incoming_migration, NULL, f);
 

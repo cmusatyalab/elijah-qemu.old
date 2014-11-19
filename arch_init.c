@@ -299,22 +299,16 @@ static void sort_ram_list(void) {
 uint64_t get_blob_pos(struct QEMUFile *f);
 void set_blob_pos(QEMUFile *f, uint64_t pos);
 
-void ram_save_raw(QEMUFile *f, void *opaque) {
+static uint64_t ram_save_raw_th(QEMUFile *f, void *opaque, bool live) {
 	RAMBlock *block;
-
-	if (!use_raw(f))
-		return;
-
-	bytes_transferred = 0;
-	last_block = NULL;
-	last_offset = 0;
+	uint64_t last_blob_pos = 0;
 
 	qemu_put_be64(f, ram_bytes_total() | RAM_SAVE_FLAG_MEM_SIZE);
 
 	QLIST_FOREACH(block, &ram_list.blocks, next) {
 		// Do not save ivshmem
-		if (strstr(block->idstr, "ivshmem.bar2") != NULL)
-			continue;
+		// if (strstr(block->idstr, "ivshmem.bar2") != NULL)
+		//	continue;
 
 		qemu_put_byte(f, strlen(block->idstr));
 		qemu_put_buffer(f, (uint8_t *) block->idstr, strlen(block->idstr));
@@ -327,15 +321,11 @@ void ram_save_raw(QEMUFile *f, void *opaque) {
 	QLIST_FOREACH(block, &ram_list.blocks, next) {
 		uint32_t i, j, temp, *random;
 		uint32_t num_pages;
-		uint64_t blob_start_pos;
 		ram_addr_t padding;
-		DPRINTF("ram_save(): flushing block id == %s\n", block->idstr);
-		DPRINTF("ram_save(): writing at == %llu\n",		\
-			(unsigned long long) qemu_ftell(f));
 
 		// Do not save ivshmem
-		if (strstr(block->idstr, "ivshmem.bar2") != NULL)
-			continue;
+		// if (strstr(block->idstr, "ivshmem.bar2") != NULL)
+		//	continue;
 
 		qemu_put_be64(f, RAM_SAVE_FLAG_RAW);
 
@@ -352,10 +342,13 @@ void ram_save_raw(QEMUFile *f, void *opaque) {
 		while (padding-- > 0)
 			qemu_put_byte(f, 0);
 
-		if (qemu_ftell(f) & (TARGET_PAGE_SIZE - 1))
-			DPRINTF("flushing block [%s] NOT aligned\n", block->idstr);
+		// if (get_blob_pos(f) & (TARGET_PAGE_SIZE - 1))
+		//	DPRINTF("flushing block [%s] NOT aligned\n", block->idstr);
 
-		blob_start_pos = get_blob_pos(f);
+		block->blob_pos = get_blob_pos(f);
+		DPRINTF("%s: [%s] block->blob_pos == %" PRIu64 "\n",
+			__func__, block->idstr, block->blob_pos);
+
 		num_pages = block->length / TARGET_PAGE_SIZE;
 
 		/* first generate random order in which pages (= blobs) are writen */
@@ -370,19 +363,110 @@ void ram_save_raw(QEMUFile *f, void *opaque) {
 		}
 
 		for (i = 0; i < num_pages; i++) {
-			set_blob_pos(f, blob_start_pos + TARGET_PAGE_SIZE * random[i]);
+			set_blob_pos(f, block->blob_pos + TARGET_PAGE_SIZE * random[i]);
+
+			/* clear dirty marking */
+			if (live)
+				memory_region_reset_dirty(block->mr, TARGET_PAGE_SIZE * random[i],
+							  TARGET_PAGE_SIZE, DIRTY_MEMORY_MIGRATION);
 			qemu_put_buffer(f, block->host + TARGET_PAGE_SIZE * random[i],
 					TARGET_PAGE_SIZE);
 		}
 
 		g_free(random);
 
-		set_blob_pos(f, blob_start_pos + TARGET_PAGE_SIZE * num_pages);
+		last_blob_pos = block->blob_pos + TARGET_PAGE_SIZE * num_pages;
+		set_blob_pos(f, last_blob_pos);
 	}
 
-	qemu_put_be64(f, RAM_SAVE_FLAG_EOS);
+	/* return last blob offset for use after bottom half, to set correct position */
+	return last_blob_pos;
+}
+
+static void ram_save_raw_bh(QEMUFile *f, void *opaque) {
+	RAMBlock *block;
+	int count = 0;
+
+	DPRINTF("%s: bottom half --------\n", __func__);
+
+	/* flush all blocks */
+	QLIST_FOREACH(block, &ram_list.blocks, next) {
+		ram_addr_t offset;
+
+		DPRINTF("%s: [%s] curr blob pos == %" PRIu64 "\n",
+			__func__, block->idstr, get_blob_pos(f));
+
+		// Do not save ivshmem
+		// if (strstr(block->idstr, "ivshmem.bar2") != NULL)
+		//	continue;
+
+		for (offset = 0; offset < block->length; offset += TARGET_PAGE_SIZE) {
+			if (memory_region_get_dirty(block->mr, offset,
+						    TARGET_PAGE_SIZE, DIRTY_MEMORY_MIGRATION)) {
+				set_blob_pos(f, block->blob_pos + offset);
+				memory_region_reset_dirty(block->mr, offset, TARGET_PAGE_SIZE,
+							  DIRTY_MEMORY_MIGRATION);
+				qemu_put_buffer(f, block->host + offset, TARGET_PAGE_SIZE);
+				count++;
+			}
+		}
+	}
+	/* this flag has been written in top half */
+	// qemu_put_be64(f, RAM_SAVE_FLAG_EOS);
+
+	DPRINTF("%s: wrote %d pages\n", __func__, count);
 
 	return;
+}
+
+void ram_save_raw(QEMUFile *f, void *opaque) {
+	if (!use_raw_suspend(f))
+		return;
+
+	/* RAW_SUSPEND needs only top half */
+	ram_save_raw_th(f, opaque, false);
+	qemu_put_be64(f, RAM_SAVE_FLAG_EOS);
+}
+
+int ram_save_raw_live(QEMUFile *f, int stage, void *opaque) {
+	static int iterations = 0;
+	static uint64_t last_blob_pos = 0;
+
+	if (!use_raw_live(f))
+		return 0;
+
+	if (stage < 0) {
+		memory_global_dirty_log_stop();
+		return 0;
+	}
+
+	if (stage == 1) {
+		iterations = 1;
+		DPRINTF("%s: iteration %d stage %d\n",
+			__func__, iterations, stage);
+		memory_global_dirty_log_start();
+		last_blob_pos = ram_save_raw_th(f, opaque, true);
+		return 0;
+	} else {
+		iterations++;
+		DPRINTF("%s: iteration %d stage %d\n",
+			__func__, iterations, stage);
+		memory_global_sync_dirty_bitmap(get_system_memory());
+		ram_save_raw_bh(f, opaque);
+		if (stage == 3) {
+			/*
+			 * EOS is written outside ram_save_raw_{th,bh}().
+			 * safe to do so as only live savevm handler is for ram.
+			 */
+			set_blob_pos(f, last_blob_pos);
+			qemu_put_be64(f, RAM_SAVE_FLAG_EOS);
+			memory_global_dirty_log_stop();
+		}
+
+		return (stage == 2) && (iterations >= 2); /* limit iterations to 10 times for now */
+	}
+
+	return 0; /* shouldn't reach here */
 }
 
 int ram_save_live(QEMUFile *f, int stage, void *opaque) {
@@ -392,7 +476,7 @@ int ram_save_live(QEMUFile *f, int stage, void *opaque) {
 	uint64_t expected_time = 0;
 	int ret;
 
-	if (use_raw(f))
+	if (!use_raw_none(f))
 		return 1;
 
 	if (stage < 0) {
@@ -409,7 +493,8 @@ int ram_save_live(QEMUFile *f, int stage, void *opaque) {
 		last_offset = 0;
 		sort_ram_list();
 
-		/* Make sure all dirty bits are set */QLIST_FOREACH(block, &ram_list.blocks, next) {
+		/* Make sure all dirty bits are set */
+		QLIST_FOREACH(block, &ram_list.blocks, next) {
 			for (addr = 0; addr < block->length; addr += TARGET_PAGE_SIZE) {
 				if (!memory_region_get_dirty(block->mr, addr, TARGET_PAGE_SIZE,
 						DIRTY_MEMORY_MIGRATION)) {
@@ -502,7 +587,7 @@ static inline void *host_from_stream_offset(QEMUFile *f, ram_addr_t offset,
 }
 
 int ram_load(QEMUFile *f, void *opaque, int version_id) {
-	if (use_raw(f))
+	if (!use_raw_none(f))
 		return ram_load_raw(f, opaque, version_id);
 	else
 		return ram_load_live(f, opaque, version_id);

@@ -46,6 +46,11 @@ struct qemu_mmap_entry
 extern int qemu_mmap_idx;
 extern struct qemu_mmap_entry qemu_mmap_entries[QEMU_MMAP_MAX];
 
+typedef enum {
+    RAW_NONE = 0,
+    RAW_SUSPEND,
+    RAW_LIVE
+} raw_type;
 
 void process_incoming_migration(QEMUFile *f);
 
@@ -72,17 +77,17 @@ int unix_start_outgoing_migration(MigrationState *s, const char *path);
 
 int fd_start_incoming_migration(const char *path);
 
-int raw_start_incoming_migration(const char *path);
+int raw_start_incoming_migration(const char *path, raw_type type);
 
 int fd_start_outgoing_migration(MigrationState *s, const char *fdname);
 
-int raw_start_outgoing_migration(MigrationState *s, const char *fdname);
+int raw_start_outgoing_migration(MigrationState *s, const char *fdname, raw_type raw);
 
 void migrate_fd_error(MigrationState *s);
 
 void migrate_fd_connect(MigrationState *s);
 
-void migrate_fd_connect_raw(MigrationState *s);
+void migrate_fd_connect_raw(MigrationState *s, raw_type type);
 
 void add_migration_state_change_notifier(Notifier *notify);
 void remove_migration_state_change_notifier(Notifier *notify);
@@ -96,6 +101,7 @@ uint64_t ram_bytes_total(void);
 
 int ram_save_live(QEMUFile *f, int stage, void *opaque);
 void ram_save_raw(QEMUFile *f, void *opaque);
+int ram_save_raw_live(QEMUFile *f, int stage, void *opaque);
 int ram_load(QEMUFile *f, void *opaque, int version_id);
 
 /**
@@ -112,7 +118,9 @@ void migrate_add_blocker(Error *reason);
  */
 void migrate_del_blocker(Error *reason);
 
-void set_use_raw(QEMUFile *file, int value);
-int use_raw(QEMUFile *file);
+void set_use_raw(QEMUFile *file, raw_type type);
+bool use_raw_none(QEMUFile *file);
+bool use_raw_suspend(QEMUFile *file);
+bool use_raw_live(QEMUFile *file);
 
 #endif

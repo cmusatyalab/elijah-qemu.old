@@ -3505,9 +3505,10 @@ int main(int argc, char **argv, char **envp)
     default_drive(default_sdcard, snapshot, machine->use_scsi,
                   IF_SD, 0, SD_OPTS);
 
-    //register_savevm_live(NULL, "ram", 0, 4, NULL, ram_save_live, NULL, ram_load, NULL);
-    register_savevm_live(NULL, "ram", 0, 4, NULL, NULL, ram_save_raw,
-                         ram_load, NULL);
+    register_savevm_live(NULL, "ram", 0, 4, NULL, ram_save_raw_live,
+			 ram_save_raw, ram_load, NULL);
+//    register_savevm_live(NULL, "ram", 0, 4, NULL, NULL, ram_save_raw,
+//                         ram_load, NULL);
 
     if (nb_numa_nodes > 0) {
         int i;
