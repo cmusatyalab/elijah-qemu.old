@@ -123,4 +123,9 @@ bool use_raw_none(QEMUFile *file);
 bool use_raw_suspend(QEMUFile *file);
 bool use_raw_live(QEMUFile *file);
 
+uint64_t raw_dump_device_state(bool suspend, bool print);
+int qemu_savevm_dump_non_live(QEMUFile *f, bool suspend, bool print);
+void qemu_fopen_ops_buffered_wrapper(MigrationState *s);
+uint64_t raw_ram_total_pages(uint64_t total_device_size);
+
 #endif

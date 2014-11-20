@@ -193,6 +193,7 @@ struct QEMUFile {
     raw_type use_raw;
 
     blob_off_t blob_pos;
+    blob_off_t blob_file_size;  /* first 8-byte header has this reported blob file size */
 //    int debug_fd;
 };
 
@@ -457,6 +458,7 @@ QEMUFile *qemu_fopen_ops(void *opaque, QEMUFilePutBufferFunc *put_buffer,
     f->get_rate_limit = get_rate_limit;
     f->is_write = 0;
     f->blob_pos = 0;
+    f->blob_file_size = 0;
 
 //    f->debug_fd = open("/tmp/debug.mem", O_WRONLY | O_CREAT | O_TRUNC, 0644);
 
@@ -1685,6 +1687,17 @@ int qemu_savevm_state_begin(QEMUFile *f, int blk_enable, int shared)
 {
     SaveStateEntry *se;
     int ret;
+    uint64_t num_pages, *header;
+
+    num_pages = raw_dump_device_state(false, false);
+
+    // no read buffer checking done, and assumes buf->index == 0 etc.
+    // i.e., we are the first and sole writer to this QEMUFile
+    header = (uint64_t*)(f->buf + f->buf_index);
+    *header = num_pages * TARGET_PAGE_SIZE;
+    f->is_write = 1;
+    f->buf_index += sizeof(uint64_t);
+    f->blob_file_size = num_pages * TARGET_PAGE_SIZE;
 
     QTAILQ_FOREACH(se, &savevm_handlers, entry) {
         if(se->set_params == NULL) {
@@ -1848,6 +1861,17 @@ int qemu_savevm_state_complete(QEMUFile *f)
     }
 
     qemu_put_byte(f, QEMU_VM_EOF);
+
+    if ((use_raw_suspend(f) || use_raw_live(f)) && (f->blob_file_size > 0)) {
+	if (f->blob_pos < f->blob_file_size) {
+	    void *padding = NULL;
+
+	    padding = g_malloc0(f->blob_file_size - f->blob_pos);
+	    qemu_put_buffer(f, padding, f->blob_file_size - f->blob_pos);
+	    qemu_fflush(f);
+	    g_free(padding);
+	}
+    }	    
 
     return qemu_file_get_error(f);
 }
@@ -2547,4 +2571,60 @@ void vmstate_unregister_ram(MemoryRegion *mr, DeviceState *dev)
 void vmstate_register_ram_global(MemoryRegion *mr)
 {
     vmstate_register_ram(mr, NULL);
+}
+
+int qemu_savevm_dump_non_live(QEMUFile *f, bool suspend, bool print)
+{
+    SaveStateEntry *se;
+    uint64_t total_size = 0;
+    int ret;
+    uint64_t num_pages_expected;
+
+    if (suspend)
+	cpu_synchronize_all_states();
+
+    QTAILQ_FOREACH(se, &savevm_handlers, entry) {
+        int len;
+
+	if (se->save_state == NULL && se->vmsd == NULL)
+	    continue;
+
+	/* skip ram */
+	if (!strcmp(se->idstr, "ram"))
+	    continue;
+
+	set_blob_pos(f, 0);
+
+        /* Section type */
+        qemu_put_byte(f, QEMU_VM_SECTION_FULL);
+        qemu_put_be32(f, se->section_id);
+
+        /* ID string */
+        len = strlen(se->idstr);
+        qemu_put_byte(f, len);
+        qemu_put_buffer(f, (uint8_t *)se->idstr, len);
+
+        qemu_put_be32(f, se->instance_id);
+        qemu_put_be32(f, se->version_id);
+
+        vmstate_save(f, se);
+
+	if (print)
+	    fprintf(stderr, "[%s] %" PRIu64 "\n", se->idstr, get_blob_pos(f));
+	total_size += get_blob_pos(f);
+    }
+
+    num_pages_expected = raw_ram_total_pages(total_size);
+
+    if (print) {
+	fprintf(stderr, "[total] %" PRIu64 "\n", total_size);
+	fprintf(stderr, "[expected raw file size] %" PRIu64 " pages\n",
+		num_pages_expected);
+    }
+
+    ret = qemu_file_get_error(f);
+    if (ret < 0)
+	return 0;  // returns 0 if error occurred
+
+    return num_pages_expected;
 }

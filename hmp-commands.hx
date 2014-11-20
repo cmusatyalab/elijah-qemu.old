@@ -1417,6 +1417,20 @@ show roms
 @end table
 ETEXI
 
+    {
+        .name       = "test_state_size",
+        .args_type  = "suspend:b?",
+        .params     = "[suspend=on|off]",
+        .help       = "dump device state sizes",
+        .mhandler.cmd = hmp_test_state_size,
+    },
+
+STEXI
+@item test_state_size
+@findex test_state_size
+dump device state sizes
+ETEXI
+
 #ifdef CONFIG_TRACE_SIMPLE
 STEXI
 @item info trace

@@ -11,11 +11,24 @@ BLOB_SIZE       = 4096
 def header_check(mem_file, out_file):
     header_size = struct.calcsize(BLOB_HEADER_FMT)
 
+    # first 8 bytes is file size
+    header = mem_file.read(header_size)
+    if len(header) != header_size:
+        print "couldn't read valid file size header"
+        return
+    file_size, = struct.unpack(BLOB_HEADER_FMT, header)
+
+    if (file_size % BLOB_SIZE) != 0:
+        print "reported file size (%d bytes) is not aligned at BLOB_SIZE boundary" % file_size
+        return
+
     blobs = set()
     blob_count = 0
-    blob_max = 0
     while True:
         header = mem_file.read(header_size)
+        if len(header) == 0:
+            break
+
         if len(header) != header_size:
             print "couldn't read valid blob header"
             break
@@ -35,8 +48,6 @@ def header_check(mem_file, out_file):
         blobs.add(blob)
 
         blob_count += 1
-        if blob > blob_max:
-            blob_max = blob
 
 #        if blob_count < 200:
 #            print "blob %d" % (blob_offset / BLOB_SIZE)
@@ -47,20 +58,21 @@ def header_check(mem_file, out_file):
             out_file.seek(blob_offset)
             out_file.write(page)
 
-        # last blob may be smaller than BLOB_SIZE
+        # file is padded to multiple of BLOB_SIZE
         if len(page) != BLOB_SIZE:
-            break
+            print "invalid blob size"
+            return
 
     # check if all blobs up to max blob number are there
     passed = True
-    for b in range(blob_max + 1):
+    for b in range(file_size / BLOB_SIZE):
         if b not in blobs:
             print "blob %d is missing"
             passed = False
             break
 
     if passed:
-        print "test passed (%d blobs, %d processed)" % (blob_max + 1, blob_count)
+        print "test passed (%d blobs, %d processed)" % (file_size / BLOB_SIZE, blob_count)
     else:
         print "test failed (some blobs are missing)"
 

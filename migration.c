@@ -369,6 +369,16 @@ void migrate_fd_connect(MigrationState *s)
     migrate_fd_put_ready(s);
 }
 
+void qemu_fopen_ops_buffered_wrapper(MigrationState *s)
+{
+    s->file = qemu_fopen_ops_buffered(s,
+				      s->bandwidth_limit,
+                                      migrate_fd_put_buffer,
+                                      migrate_fd_put_ready,
+                                      migrate_fd_wait_for_unfreeze,
+                                      migrate_fd_close);
+}
+
 void migrate_fd_connect_raw(MigrationState *s, raw_type type)
 {
     int ret;
@@ -427,7 +437,7 @@ void qmp_migrate(const char *uri, bool has_blk, bool blk,
                  bool has_inc, bool inc, bool has_detach, bool detach,
                  Error **errp)
 {
-	DPRINTF("migration: start migration at %s\n", uri);
+    DPRINTF("migration: start migration at %s\n", uri);
     MigrationState *s = migrate_get_current();
     const char *p;
     int ret;

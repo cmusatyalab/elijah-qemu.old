@@ -150,3 +150,51 @@ int raw_start_incoming_migration(const char *infd, raw_type type)
 
     return 0;
 }
+
+/* stolen from migration.c */
+enum {
+    MIG_STATE_ERROR,
+    MIG_STATE_SETUP,
+    MIG_STATE_CANCELLED,
+    MIG_STATE_ACTIVE,
+    MIG_STATE_COMPLETED,
+};
+
+uint64_t raw_dump_device_state(bool suspend, bool print)
+{
+    MigrationState _s, *s = &_s;
+    char fname[64];
+    uint64_t num_pages = 0;
+
+    strcpy(fname, "/tmp/qemu.XXXXXX");
+    s->fd = mkostemp(fname, O_CREAT | O_WRONLY | O_TRUNC);
+
+    if (s->fd == -1) {
+	DPRINTF("raw_migration: failed to open file\n");
+	goto err_after_get_fd;
+    }
+
+    if (fcntl(s->fd, F_SETFL, O_NONBLOCK) == -1) {
+	DPRINTF("Unable to set nonblocking mode on file descriptor\n");
+	goto err_after_open;
+    }
+
+    s->get_error = raw_errno;
+    s->write = raw_write;
+    s->close = raw_close;
+
+    s->state = MIG_STATE_ACTIVE;
+    qemu_fopen_ops_buffered_wrapper(s);
+
+    num_pages = qemu_savevm_dump_non_live(s->file, suspend, print);
+
+    qemu_fclose(s->file);
+//    unlink(fname);
+
+    return num_pages;
+
+err_after_open:
+    close(s->fd);
+err_after_get_fd:
+    return 0;  // returns 0 pages on error
+}

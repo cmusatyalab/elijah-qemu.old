@@ -16,6 +16,7 @@
 #include "hmp.h"
 #include "qemu-timer.h"
 #include "qmp-commands.h"
+#include "migration.h"
 
 static void hmp_handle_error(Monitor *mon, Error **errp)
 {
@@ -946,4 +947,33 @@ void hmp_device_del(Monitor *mon, const QDict *qdict)
 
     qmp_device_del(id, &err);
     hmp_handle_error(mon, &err);
+}
+
+void hmp_test_state_size(Monitor *mon, const QDict *qdict)
+{
+    int suspend = qdict_get_try_bool(qdict, "suspend", 0);
+    Error *errp = NULL;
+
+    if (suspend)
+	qmp_stop(NULL);
+    raw_dump_device_state(suspend, true);
+    if (suspend) {
+	qmp_cont(&errp);
+	if (error_is_set(&errp)) {
+	    if (error_is_type(errp, QERR_DEVICE_ENCRYPTED)) {
+		const char *device;
+
+		/* The device is encrypted. Ask the user for the password
+		   and retry */
+
+		device = error_get_field(errp, "device");
+		assert(device != NULL);
+
+		monitor_read_block_device_key(mon, device, hmp_cont_cb, mon);
+		error_free(errp);
+		return;
+	    }
+	    hmp_handle_error(mon, &errp);
+	}
+    }
 }
