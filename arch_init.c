@@ -442,15 +442,17 @@ int ram_save_raw_live(QEMUFile *f, int stage, void *opaque) {
 
 	if (stage == 1) {
 		iterations = 1;
-		DPRINTF("%s: iteration %d stage %d\n",
-			__func__, iterations, stage);
+//		DPRINTF("%s: iteration %d stage %d\n",
+//			__func__, iterations, stage);
 		memory_global_dirty_log_start();
 		last_blob_pos = ram_save_raw_th(f, opaque, true);
 		return 0;
 	} else {
+		bool stage2_done = false;
+
 		iterations++;
-		DPRINTF("%s: iteration %d stage %d\n",
-			__func__, iterations, stage);
+//		DPRINTF("%s: iteration %d stage %d\n",
+//			__func__, iterations, stage);
 		memory_global_sync_dirty_bitmap(get_system_memory());
 		ram_save_raw_bh(f, opaque);
 		if (stage == 3) {
@@ -463,7 +465,14 @@ int ram_save_raw_live(QEMUFile *f, int stage, void *opaque) {
 			memory_global_dirty_log_stop();
 		}
 
-		return (stage == 2) && (iterations >= 2); /* limit iterations to 10 times for now */
+		if (stage == 2)
+			stage2_done = check_notify_raw_live_stop(f);
+
+		if (stage2_done)
+			fprintf(stderr, "%s: received raw-live-stop request %d iterations\n",
+				__func__, iterations);
+
+		return stage2_done;
 	}
 
 	return 0; /* shouldn't reach here */

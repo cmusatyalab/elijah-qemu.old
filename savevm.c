@@ -84,6 +84,7 @@
 #include "qemu-timer.h"
 #include "cpus.h"
 #include "memory.h"
+#include "qemu-thread.h"
 #include "qmp-commands.h"
 
 #define SELF_ANNOUNCE_ROUNDS 5
@@ -95,7 +96,7 @@
 #define ARP_PTYPE_IP 0x0800
 #define ARP_OP_REQUEST_REV 0x3
 
-#define DEBUG_SAVEVM
+// #define DEBUG_SAVEVM
 
 #ifdef DEBUG_SAVEVM
 #define DPRINTF(fmt, ...) \
@@ -194,6 +195,8 @@ struct QEMUFile {
 
     blob_off_t blob_pos;
     blob_off_t blob_file_size;  /* first 8-byte header has this reported blob file size */
+    QemuMutex raw_live_state_lock;
+    bool raw_live_stop_requested; /* protected by raw_live_state_lock */
 //    int debug_fd;
 };
 
@@ -459,6 +462,8 @@ QEMUFile *qemu_fopen_ops(void *opaque, QEMUFilePutBufferFunc *put_buffer,
     f->is_write = 0;
     f->blob_pos = 0;
     f->blob_file_size = 0;
+    qemu_mutex_init(&f->raw_live_state_lock);
+    f->raw_live_stop_requested = false;
 
 //    f->debug_fd = open("/tmp/debug.mem", O_WRONLY | O_CREAT | O_TRUNC, 0644);
 
@@ -569,6 +574,8 @@ int qemu_fclose(QEMUFile *f)
 
 //    if (f->debug_fd >= 0)
 //	close(f->debug_fd);
+
+    qemu_mutex_destroy(&f->raw_live_state_lock);
 
     /* If any error was spotted before closing, we should report it
      * instead of the close() return value.
@@ -1771,9 +1778,6 @@ int qemu_savevm_state_iterate(QEMUFile *f)
 	    (use_raw_live(f) && !strcmp(se->idstr, "block")))
             continue;
 
-	fprintf(stderr,"%s: calling savevm handler for %s\n",
-		__func__, se->idstr);
-
 	/* don't write section header if raw live */
 	if (!use_raw_live(f)) {
 	    /* Section type */
@@ -1840,7 +1844,7 @@ int qemu_savevm_state_complete(QEMUFile *f)
 	    continue;
 
 	if ((!strcmp(se->idstr, "ram")) && !use_raw_suspend(f)) {
-	    fprintf(stderr, "%s: skipping RAM_SUSPEND savevm handler\n",
+	    DPRINTF("%s: skipping RAM_SUSPEND savevm handler\n",
 		    __func__);
 	    continue;
 	}
@@ -2627,4 +2631,25 @@ int qemu_savevm_dump_non_live(QEMUFile *f, bool suspend, bool print)
 	return 0;  // returns 0 if error occurred
 
     return num_pages_expected;
+}
+
+void wait_raw_live_stop(QEMUFile *f)
+{
+    qemu_mutex_lock(&f->raw_live_state_lock);
+    f->raw_live_stop_requested = true;
+    qemu_mutex_unlock(&f->raw_live_state_lock);
+}
+
+bool check_notify_raw_live_stop(QEMUFile *f)
+{
+    bool stopped = false;
+
+    qemu_mutex_lock(&f->raw_live_state_lock);
+    if (f->raw_live_stop_requested) {
+	f->raw_live_stop_requested = false;
+	stopped = true;
+    }
+    qemu_mutex_unlock(&f->raw_live_state_lock);
+
+    return stopped;
 }

@@ -1096,6 +1096,28 @@ Notes:
     o Commands that prompt the user for data (eg. 'cont' when the block
       device is encrypted) don't currently work
 
+EQMP
+
+    {
+        .name       = "stop-raw-live",
+        .args_type  = "",
+        .mhandler.cmd_new = qmp_marshal_input_stop_raw_live,
+    },
+
+SQMP
+stop-raw-live
+----
+
+Stop ongoing raw live migration.
+
+Arguments: None.
+
+Example:
+
+-> { "execute": "stop-raw-live" }
+<- { "return": {} }
+
+
 3. Query Commands
 =================
 

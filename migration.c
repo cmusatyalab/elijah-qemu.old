@@ -514,3 +514,14 @@ void qmp_migrate_set_downtime(double value, Error **errp)
     value = MAX(0, MIN(UINT64_MAX, value));
     max_downtime = (uint64_t)value;
 }
+
+void qmp_stop_raw_live(Error **err)
+{
+    MigrationState *s;
+
+    s = migrate_get_current();
+    if (s->state != MIG_STATE_ACTIVE)
+        return;
+
+    wait_raw_live_stop(s->file);
+}
