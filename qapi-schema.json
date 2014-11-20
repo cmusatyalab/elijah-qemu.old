@@ -1272,6 +1272,13 @@
   'returns': 'str' } 
 
 ##
+# @stop-raw-live:
+#
+# Stop ongoing raw live migration.
+##
+{ 'command': 'stop-raw-live' }
+
+##
 # @migrate_cancel
 #
 # Cancel the current executing migration process.
