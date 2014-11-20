@@ -12,6 +12,7 @@ BLOB_SIZE       = 4096
 
 class _QemuMemoryHeader(object):
     HEADER_MAGIC = 'LibvirtQemudSave'
+    HEADER_MAGIC2 = 'LibvirtQemudPart'
     HEADER_VERSION = 2
     HEADER_FORMAT = str(len(HEADER_MAGIC)) + 's19I'
     HEADER_LENGTH = struct.calcsize(HEADER_FORMAT)
@@ -35,7 +36,7 @@ class _QemuMemoryHeader(object):
         self.compressed = header.pop(0)
 
         # Check header
-        if magic != self.HEADER_MAGIC:
+        if magic != self.HEADER_MAGIC and magic != self.HEADER_MAGIC2:
             raise MachineGenerationError('Invalid memory image magic')
         if version != self.HEADER_VERSION:
             raise MachineGenerationError('Unknown memory image version %d' %
