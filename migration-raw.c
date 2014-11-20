@@ -189,7 +189,7 @@ uint64_t raw_dump_device_state(bool suspend, bool print)
     num_pages = qemu_savevm_dump_non_live(s->file, suspend, print);
 
     qemu_fclose(s->file);
-//    unlink(fname);
+    unlink(fname);
 
     return num_pages;
 
