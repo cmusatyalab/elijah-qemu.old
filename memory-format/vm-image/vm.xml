@@ -29,5 +29,7 @@
     <qemu:commandline>
         <qemu:arg value='-redir'/>
         <qemu:arg value='tcp:2221::22' />
+	<qemu:arg value='-qmp'/>
+	<qemu:arg value='unix:/tmp/qmp_cloudlet,server,nowait'/>
     </qemu:commandline>
 </domain>

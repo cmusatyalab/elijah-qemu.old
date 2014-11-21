@@ -85,7 +85,7 @@ void qmp_quit(Error **err)
 
 void qmp_stop(Error **errp)
 {
-    vm_stop(RUN_STATE_PAUSED);
+//    vm_stop(RUN_STATE_PAUSED);
 }
 
 void qmp_system_reset(Error **errp)

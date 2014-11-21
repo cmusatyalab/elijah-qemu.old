@@ -467,7 +467,7 @@ void qmp_migrate(const char *uri, bool has_blk, bool blk,
         ret = unix_start_outgoing_migration(s, p);
     } else if (strstart(uri, "fd:", &p)) {
         //ret = fd_start_outgoing_migration(s, p);
-        ret = raw_start_outgoing_migration(s, p, RAW_SUSPEND);
+        ret = raw_start_outgoing_migration(s, p, RAW_LIVE);
     } else if (strstart(uri, "raw:", &p)) {
         ret = raw_start_outgoing_migration(s, p, RAW_SUSPEND);
     } else if (strstart(uri, "rawlive:", &p)) {

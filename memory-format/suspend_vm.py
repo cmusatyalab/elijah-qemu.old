@@ -11,6 +11,18 @@ import multiprocessing
 from xml.etree import ElementTree
 from xml.etree.ElementTree import Element
 
+import time
+from multiprocessing import Process
+from qmp_af_unix import *
+
+# stop raw live after 20 seconds
+# NOTE: qemu doesn't erase unix socket file,
+# so might want to clean it up manually
+def delayed_stop():
+    time.sleep(20)
+    qmp = QmpAfUnix(QMP_UNIX_SOCK)
+    qmp.stop_raw_live_once()
+
 def main(xml_path):
     conn = libvirt.open("qemu:///session")
     machine = conn.createXML(open(xml_path, "r").read(), 0)
@@ -31,10 +43,15 @@ def main(xml_path):
     #        close_fds=True)
     #vnc_process.wait()
     raw_input("Enter to suspend")
+    p = Process(target=delayed_stop)
+    p.start()
 
     #save memory snapshot
     output_filename = "./memory-snapshot"
     machine.save(output_filename)
+
+    p.join()
+
     print "finish"
     return machine
 
