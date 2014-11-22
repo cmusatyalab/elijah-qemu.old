@@ -76,7 +76,8 @@ int qemu_start_incoming_migration(const char *uri, Error **errp)
         ret = unix_start_incoming_migration(p);
     else if (strstart(uri, "fd:", &p))
         //ret = fd_start_incoming_migration(p);
-    	ret = raw_start_incoming_migration(p, RAW_SUSPEND);
+    	//ret = raw_start_incoming_migration(p, RAW_SUSPEND);
+    	ret = raw_start_incoming_migration(p, RAW_LIVE);
     else if (strstart(uri, "raw:", &p))
     	ret = raw_start_incoming_migration(p, RAW_SUSPEND);
     else if (strstart(uri, "rawlive:", &p))
