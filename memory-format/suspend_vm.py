@@ -20,7 +20,7 @@ from qmp_af_unix import *
 # NOTE: qemu doesn't erase unix socket file,
 # so might want to clean it up manually
 def delayed_stop():
-    waiting_time = 20
+    waiting_time = 1
     for index in range(waiting_time):
         sys.stdout.write("waiting %d/%d seconds\n" % (index, waiting_time))
         time.sleep(1)
@@ -55,6 +55,7 @@ class MemoryReadProcess(multiprocessing.Process):
                     if data == None or len(data) <= 0:
                         break
                     self.total_read_size += len(data)
+                    self.result_queue.put(data)
                     #time.sleep(0.1)
         except Exception, e:
             sys.stdout.write("[MemorySnapshotting] Exception1n")
@@ -63,6 +64,7 @@ class MemoryReadProcess(multiprocessing.Process):
 
         time_e = time.time()
         sys.stdout.write("[time] Memory snapshotting time : %f\n" % (time_e-time_s))
+        self.result_queue.put("SNAPSHOT_END")
         self.finish()
 
     def finish(self):
@@ -95,9 +97,12 @@ def main(xml_path):
         os.remove(output_fifo)
 
     # save output queue to file
-    out_fd = open(output_filename, "rb+")
-    while output_queue.empty() == False:
-        out_fd.write(output_queue.get())
+    out_fd = open(output_filename, "wb+")
+    while True:
+        data = output_queue.get()
+        if data == "SNAPSHOT_END":
+            break
+        out_fd.write(data)
     out_fd.close()
 
 
