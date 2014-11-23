@@ -88,11 +88,11 @@ static void buffered_flush(QEMUFileBuffered *s)
 
         ret = s->put_buffer(s->opaque, s->buffer + offset,
                             s->buffer_size - offset);
-        if (ret == -EAGAIN) {
-            DPRINTF("backend not ready, freezing\n");
-            s->freeze_output = 1;
-            break;
-        }
+//        if (ret == -EAGAIN) {
+//            DPRINTF("backend not ready, freezing\n");
+//            s->freeze_output = 1;
+//            break;
+//        }
 
         if (ret <= 0) {
             DPRINTF("error flushing data, %zd\n", ret);
@@ -123,23 +123,24 @@ static int buffered_put_buffer(void *opaque, const uint8_t *buf, int64_t pos, in
         return error;
     }
 
-    DPRINTF("unfreezing output\n");
-    s->freeze_output = 0;
+//    DPRINTF("unfreezing output\n");
+//    s->freeze_output = 0;
 
     buffered_flush(s);
 
-    while (!s->freeze_output && offset < size) {
-        if (s->bytes_xfer > s->xfer_limit) {
-            DPRINTF("transfer limit exceeded when putting\n");
-            break;
-        }
+//    while (!s->freeze_output && offset < size) {
+    while (offset < size) {
+//        if (s->bytes_xfer > s->xfer_limit) {
+//            DPRINTF("transfer limit exceeded when putting\n");
+//            break;
+//        }
 
         ret = s->put_buffer(s->opaque, buf + offset, size - offset);
-        if (ret == -EAGAIN) {
-            DPRINTF("backend not ready, freezing\n");
-            s->freeze_output = 1;
-            break;
-        }
+//        if (ret == -EAGAIN) {
+//            DPRINTF("backend not ready, freezing\n");
+//            s->freeze_output = 1;
+//            break;
+//        }
 
         if (ret <= 0) {
             DPRINTF("error putting\n");
@@ -150,7 +151,7 @@ static int buffered_put_buffer(void *opaque, const uint8_t *buf, int64_t pos, in
 
         DPRINTF("put %zd byte(s)\n", ret);
         offset += ret;
-        s->bytes_xfer += ret;
+//        s->bytes_xfer += ret;
     }
 
     if (offset >= 0) {
@@ -159,13 +160,13 @@ static int buffered_put_buffer(void *opaque, const uint8_t *buf, int64_t pos, in
         offset = size;
     }
 
-    if (pos == 0 && size == 0) {
-        DPRINTF("file is ready\n");
-        if (s->bytes_xfer <= s->xfer_limit) {
-            DPRINTF("notifying client\n");
-            s->put_ready(s->opaque);
-        }
-    }
+//    if (pos == 0 && size == 0) {
+//        DPRINTF("file is ready\n");
+//        if (s->bytes_xfer <= s->xfer_limit) {
+//            DPRINTF("notifying client\n");
+//            s->put_ready(s->opaque);
+//        }
+//    }
 
     return offset;
 }
@@ -179,14 +180,14 @@ static int buffered_close(void *opaque)
 
     while (!qemu_file_get_error(s->file) && s->buffer_size) {
         buffered_flush(s);
-        if (s->freeze_output)
-            s->wait_for_unfreeze(s->opaque);
+//        if (s->freeze_output)
+//            s->wait_for_unfreeze(s->opaque);
     }
 
     ret = s->close(s->opaque);
 
-    qemu_del_timer(s->timer);
-    qemu_free_timer(s->timer);
+//    qemu_del_timer(s->timer);
+//    qemu_free_timer(s->timer);
     g_free(s->buffer);
     g_free(s);
 
@@ -199,6 +200,15 @@ static int buffered_close(void *opaque)
  *   1: Time to stop
  *   negative: There has been an error
  */
+/*
+ * Use a dummy version here so we can always keep sending
+ */
+static int buffered_rate_limit(void *opaque)
+{
+    return 0;
+}
+
+/*
 static int buffered_rate_limit(void *opaque)
 {
     QEMUFileBuffered *s = opaque;
@@ -216,6 +226,7 @@ static int buffered_rate_limit(void *opaque)
 
     return 0;
 }
+*/
 
 static int64_t buffered_set_rate_limit(void *opaque, int64_t new_rate)
 {
@@ -285,9 +296,8 @@ QEMUFile *qemu_fopen_ops_buffered(void *opaque,
                              buffered_set_rate_limit,
 			     buffered_get_rate_limit);
 
-    s->timer = qemu_new_timer_ms(rt_clock, buffered_rate_tick, s);
-
-    qemu_mod_timer(s->timer, qemu_get_clock_ms(rt_clock) + 100);
+//    s->timer = qemu_new_timer_ms(rt_clock, buffered_rate_tick, s);
+//    qemu_mod_timer(s->timer, qemu_get_clock_ms(rt_clock) + 100);
 
     return s->file;
 }

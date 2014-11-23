@@ -88,10 +88,11 @@ int raw_start_outgoing_migration(MigrationState *s, const char *fdname, raw_type
 
 	}
 
-	if (fcntl(s->fd, F_SETFL, O_NONBLOCK) == -1) {
-		DPRINTF("Unable to set nonblocking mode on file descriptor\n");
-		goto err_after_open;
-	}
+    /* we disable internal mechanism based on timers, and simply block on writes */
+//	if (fcntl(s->fd, F_SETFL, O_NONBLOCK) == -1) {
+//		DPRINTF("Unable to set nonblocking mode on file descriptor\n");
+//		goto err_after_open;
+//	}
 
     s->get_error = raw_errno;
     s->write = raw_write;
