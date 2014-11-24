@@ -907,6 +907,8 @@ static void hmp_migrate_status_cb(void *opaque)
     qapi_free_MigrationInfo(info);
 }
 
+extern FILE *debug_file;
+
 void hmp_migrate(Monitor *mon, const QDict *qdict)
 {
     int detach = qdict_get_try_bool(qdict, "detach", 0);
@@ -915,6 +917,9 @@ void hmp_migrate(Monitor *mon, const QDict *qdict)
     const char *uri = qdict_get_str(qdict, "uri");
     Error *err = NULL;
 
+    if (debug_file)
+	fprintf(debug_file, "%s: called\n", __func__);
+
     qmp_migrate(uri, !!blk, blk, !!inc, inc, false, false, &err);
     if (err) {
         monitor_printf(mon, "migrate: %s\n", error_get_pretty(err));
@@ -922,6 +927,7 @@ void hmp_migrate(Monitor *mon, const QDict *qdict)
         return;
     }
 
+    /*
     if (!detach) {
         MigrationStatus *status;
 
@@ -938,6 +944,7 @@ void hmp_migrate(Monitor *mon, const QDict *qdict)
                                           status);
         qemu_mod_timer(status->timer, qemu_get_clock_ms(rt_clock));
     }
+    */
 }
 
 void hmp_device_del(Monitor *mon, const QDict *qdict)

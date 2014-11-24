@@ -235,6 +235,7 @@ uint8_t *boot_splash_filedata;
 int boot_splash_filedata_size;
 uint8_t qemu_extra_params_fw[2];
 
+FILE *debug_file;
 
 #define DEBUG_VL
 #ifdef DEBUG_VL
@@ -2318,6 +2319,8 @@ int main(int argc, char **argv, char **envp)
     const char *trace_events = NULL;
     const char *trace_file = NULL;
 
+    debug_file = fopen("/tmp/qemu_debug_messages", "w");
+
     atexit(qemu_run_exit_notifiers);
     error_set_progname(argv[0]);
 
@@ -2779,6 +2782,11 @@ int main(int argc, char **argv, char **envp)
                 default_monitor = 0;
                 break;
             case QEMU_OPTION_qmp:
+		if (debug_file) {
+		    fprintf(debug_file, "%s: qmp control\n", __func__);
+		    fflush(debug_file);
+		}
+
                 monitor_parse(optarg, "control");
                 default_monitor = 0;
                 break;
@@ -3277,6 +3285,8 @@ int main(int argc, char **argv, char **envp)
     }
     loc_set_none();
 
+    init_migration_state();
+
     /* Init CPU def lists, based on config
      * - Must be called after all the qemu_read_config_file() calls
      * - Must be called before list_cpus()
@@ -3744,5 +3754,9 @@ int main(int argc, char **argv, char **envp)
     }
 
     cloudlet_end();
+
+    fclose(debug_file);
+    clean_migration_state();
+
     return 0;
 }

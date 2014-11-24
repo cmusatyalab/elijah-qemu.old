@@ -35,6 +35,8 @@
     do { } while (0)
 #endif
 
+extern FILE *debug_file;
+
 enum {
     MIG_STATE_ERROR,
     MIG_STATE_SETUP,
@@ -60,6 +62,20 @@ static MigrationState *migrate_get_current(void)
     };
 
     return &current_migration;
+}
+
+void init_migration_state(void)
+{
+    MigrationState *s = migrate_get_current();
+
+    qemu_mutex_init(&s->serial_lock);
+}
+
+void clean_migration_state(void)
+{
+    MigrationState *s = migrate_get_current();
+
+    qemu_mutex_destroy(&s->serial_lock);
 }
 
 int qemu_start_incoming_migration(const char *uri, Error **errp)
@@ -125,6 +141,42 @@ MigrationInfo *qmp_query_migrate(Error **errp)
     MigrationInfo *info = g_malloc0(sizeof(*info));
     MigrationState *s = migrate_get_current();
 
+    if (debug_file)
+	fprintf(debug_file, "%s: called\n", __func__);
+
+    /*
+    qemu_mutex_lock(&s->serial_lock);
+    if (s->ongoing) {
+	qemu_mutex_unlock(&s->serial_lock);
+
+        info->has_status = true;
+        info->status = g_strdup("active");
+
+	// return dummy numbers
+        info->has_ram = true;
+        info->ram = g_malloc0(sizeof(*info->ram));
+        info->ram->transferred = 1024;
+	info->ram->remaining = 1024;
+        info->ram->total = 2048;
+
+        if (blk_mig_active()) {
+            info->has_disk = true;
+            info->disk = g_malloc0(sizeof(*info->disk));
+            info->disk->transferred = 1024;
+            info->disk->remaining = 1024;
+            info->disk->total = 2048;
+        }
+
+	if (debug_file) {
+	    fprintf(debug_file, "%s: returning active (1)\n", __func__);
+	    fflush(debug_file);
+	}
+
+        return info;
+    }
+    qemu_mutex_unlock(&s->serial_lock);
+    */
+
     switch (s->state) {
     case MIG_STATE_SETUP:
         /* no migration has happened ever */
@@ -146,6 +198,24 @@ MigrationInfo *qmp_query_migrate(Error **errp)
             info->disk->remaining = blk_mig_bytes_remaining();
             info->disk->total = blk_mig_bytes_total();
         }
+
+	/*
+	// return dummy numbers
+        info->has_ram = true;
+        info->ram = g_malloc0(sizeof(*info->ram));
+        info->ram->transferred = 1024;
+	info->ram->remaining = 1024;
+        info->ram->total = 2048;
+
+        if (blk_mig_active()) {
+            info->has_disk = true;
+            info->disk = g_malloc0(sizeof(*info->disk));
+            info->disk->transferred = 1024;
+            info->disk->remaining = 1024;
+            info->disk->total = 2048;
+        }
+	*/
+
         break;
     case MIG_STATE_COMPLETED:
         info->has_status = true;
@@ -161,6 +231,12 @@ MigrationInfo *qmp_query_migrate(Error **errp)
         break;
     }
 
+    if (debug_file) {
+	fprintf(debug_file, "%s: returning [%s]\n",
+		__func__, info->status);
+	fflush(debug_file);
+    }
+
     return info;
 }
 
@@ -170,7 +246,7 @@ static int migrate_fd_cleanup(MigrationState *s)
 {
     int ret = 0;
 
-    qemu_set_fd_handler2(s->fd, NULL, NULL, NULL, NULL);
+//    qemu_set_fd_handler2(s->fd, NULL, NULL, NULL, NULL);
 
     if (s->file) {
         DPRINTF("closing file\n");
@@ -251,27 +327,31 @@ static void migrate_fd_put_ready(void *opaque)
         return;
     }
 
-    DPRINTF("iterate\n");
-    ret = qemu_savevm_state_iterate(s->file);
-    if (ret < 0) {
-        migrate_fd_error(s);
-    } else if (ret == 1) {
-        int old_vm_running = runstate_is_running();
+    for ( ; ; ) {
+	DPRINTF("iterate\n");
+	ret = qemu_savevm_state_iterate(s->file);
+	if (ret < 0) {
+	    migrate_fd_error(s);
+	    break;
+	} else if (ret == 1) {
+	    int old_vm_running = runstate_is_running();
 
-        DPRINTF("done iterating\n");
-        qemu_system_wakeup_request(QEMU_WAKEUP_REASON_OTHER);
-        vm_stop_force_state(RUN_STATE_FINISH_MIGRATE);
+	    DPRINTF("done iterating\n");
+	    qemu_system_wakeup_request(QEMU_WAKEUP_REASON_OTHER);
+	    vm_stop_force_state(RUN_STATE_FINISH_MIGRATE);
 
-        if (qemu_savevm_state_complete(s->file) < 0) {
-            migrate_fd_error(s);
-        } else {
-            migrate_fd_completed(s);
-        }
-        if (s->state != MIG_STATE_COMPLETED) {
-            if (old_vm_running) {
-                vm_start();
-            }
-        }
+	    if (qemu_savevm_state_complete(s->file) < 0) {
+		migrate_fd_error(s);
+	    } else {
+		migrate_fd_completed(s);
+	    }
+	    if (s->state != MIG_STATE_COMPLETED) {
+		if (old_vm_running) {
+		    vm_start();
+		}
+	    }
+	    break;
+	}
     }
 }
 
@@ -379,10 +459,29 @@ void qemu_fopen_ops_buffered_wrapper(MigrationState *s)
                                       migrate_fd_close);
 }
 
-void migrate_fd_connect_raw(MigrationState *s, raw_type type)
+static void *raw_migrate_core(void *data)
 {
+    MigrationState *s = (MigrationState *)data;
     int ret;
 
+    DPRINTF("beginning savevm\n");
+    ret = qemu_savevm_state_begin(s->file, s->blk, s->shared);
+    if (ret < 0) {
+        DPRINTF("failed, %d\n", ret);
+        migrate_fd_error(s);
+        return NULL;
+    }
+    migrate_fd_put_ready(s);
+
+    qemu_mutex_lock(&s->serial_lock);
+    s->ongoing = false;
+    qemu_mutex_unlock(&s->serial_lock);
+
+    return NULL;
+}
+
+void migrate_fd_connect_raw(MigrationState *s, raw_type type)
+{
     g_assert(type != RAW_NONE);
 
     s->state = MIG_STATE_ACTIVE;
@@ -395,14 +494,10 @@ void migrate_fd_connect_raw(MigrationState *s, raw_type type)
 
     set_use_raw(s->file, type);
 
-    DPRINTF("beginning savevm\n");
-    ret = qemu_savevm_state_begin(s->file, s->blk, s->shared);
-    if (ret < 0) {
-        DPRINTF("failed, %d\n", ret);
-        migrate_fd_error(s);
-        return;
-    }
-    migrate_fd_put_ready(s);
+    qemu_thread_create(&s->raw_thread, raw_migrate_core,
+		       (void*)s, QEMU_THREAD_DETACHED);
+//    qemu_thread_create(&s->raw_thread, raw_migrate_core,
+//		       (void*)s, QEMU_THREAD_JOINABLE);
 }
 
 static MigrationState *migrate_init(int blk, int inc)
@@ -441,6 +536,18 @@ void qmp_migrate(const char *uri, bool has_blk, bool blk,
     MigrationState *s = migrate_get_current();
     const char *p;
     int ret;
+
+    qemu_mutex_lock(&s->serial_lock);
+    if (s->ongoing) {
+        error_set(errp, QERR_MIGRATION_ACTIVE);
+	qemu_mutex_unlock(&s->serial_lock);
+        return;
+    }
+    s->ongoing = true;
+    qemu_mutex_unlock(&s->serial_lock);
+
+    if (debug_file)
+	fprintf(debug_file, "%s: called\n", __func__);
 
     if (s->state == MIG_STATE_ACTIVE) {
         error_set(errp, QERR_MIGRATION_ACTIVE);
@@ -481,12 +588,13 @@ void qmp_migrate(const char *uri, bool has_blk, bool blk,
     if (ret < 0) {
         if (!error_is_set(errp)) {
             DPRINTF("migration failed: %s\n", strerror(-ret));
-            /* FIXME: we should return meaningful errors */
+            // FIXME: we should return meaningful errors
             error_set(errp, QERR_UNDEFINED_ERROR);
         }
         return;
     }
 
+    // currently used only for SPICE, so just ignore this
     notifier_list_notify(&migration_state_notifiers, s);
 }
 

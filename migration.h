@@ -18,6 +18,7 @@
 #include "qemu-common.h"
 #include "notify.h"
 #include "error.h"
+#include "qemu-thread.h"
 
 typedef struct MigrationState MigrationState;
 
@@ -33,6 +34,9 @@ struct MigrationState
     void *opaque;
     int blk;
     int shared;
+    QemuThread raw_thread;
+    QemuMutex serial_lock;
+    bool ongoing;  /* protected by serial_lock */
 };
 
 #define QEMU_MMAP_MAX 16
@@ -129,5 +133,8 @@ void qemu_fopen_ops_buffered_wrapper(MigrationState *s);
 uint64_t raw_ram_total_pages(uint64_t total_device_size);
 void wait_raw_live_stop(QEMUFile *f);
 bool check_notify_raw_live_stop(QEMUFile *f);
+
+void init_migration_state(void);
+void clean_migration_state(void);
 
 #endif

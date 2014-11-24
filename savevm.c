@@ -27,9 +27,11 @@
 #include <errno.h>
 #include <sys/time.h>
 #include <zlib.h>
+#include <stdint.h>
 
 /* Needed early for CONFIG_BSD etc. */
 #include "config-host.h"
+#include "main-loop.h"
 
 #ifndef _WIN32
 #include <sys/times.h>
@@ -1809,7 +1811,17 @@ int qemu_savevm_state_complete(QEMUFile *f)
     SaveStateEntry *se;
     int ret;
 
+    /*
+     * cpu_synchronize_all_states() is not called besides savevm code,
+     * and qmp_migrate is protected by a serialization lock.
+     * qemu_save_device_state() is called while executing non-live
+     * savevm handlers, it may case races. if that needs to be accoutned
+     * for, move qemu_mutex_unlock_iothread() after the iteration of
+     * non-live handlers.
+     */
+    qemu_mutex_lock_iothread();
     cpu_synchronize_all_states();
+    qemu_mutex_unlock_iothread();
 
     QTAILQ_FOREACH(se, &savevm_handlers, entry) {
 	/*
@@ -2584,6 +2596,10 @@ int qemu_savevm_dump_non_live(QEMUFile *f, bool suspend, bool print)
     int ret;
     uint64_t num_pages_expected;
 
+    /*
+     * note that this has to be done with iothread lock,
+     * if not suspended and not done within I/O thread.
+     */
     if (suspend)
 	cpu_synchronize_all_states();
 

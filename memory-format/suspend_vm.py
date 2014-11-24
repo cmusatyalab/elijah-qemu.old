@@ -19,7 +19,7 @@ from qmp_af_unix import *
 # NOTE: qemu doesn't erase unix socket file,
 # so might want to clean it up manually
 def delayed_stop():
-    time.sleep(20)
+    time.sleep(35)
     qmp = QmpAfUnix(QMP_UNIX_SOCK)
     qmp.stop_raw_live_once()
 
