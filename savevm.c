@@ -617,6 +617,22 @@ void qemu_put_buffer(QEMUFile *f, const uint8_t *buf, size_t size)
 
 	    if (f->buf_index >= IO_BUF_SIZE)
 		qemu_fflush(f);
+
+	    if ((f->blob_file_size > 0)) {
+		if (f->blob_pos >= f->blob_file_size) {
+		    if (debug_file) {
+			fprintf(debug_file, "%s: ERROR writing blob header with pos %" PRIu64 "\n",
+				__func__, f->blob_pos);
+			fflush(debug_file);
+		    }
+		} else if (f->blob_pos == (f->blob_file_size - BLOB_SIZE)) {
+		    if (debug_file) {
+			fprintf(debug_file, "%s: writing LAST blob header with pos %" PRIu64 "\n",
+				__func__, f->blob_pos);
+			fflush(debug_file);
+		    }
+		}
+	    }
 	}
 
         l = IO_BUF_SIZE - f->buf_index;
@@ -659,6 +675,22 @@ void qemu_put_byte(QEMUFile *f, int v)
 
         if (f->buf_index >= IO_BUF_SIZE)
             qemu_fflush(f);
+
+	if ((f->blob_file_size > 0)) {
+	    if (f->blob_pos >= f->blob_file_size) {
+		if (debug_file) {
+		    fprintf(debug_file, "%s: ERROR writing blob header with pos %" PRIu64 "\n",
+			    __func__, f->blob_pos);
+		    fflush(debug_file);
+		}
+	    } else if (f->blob_pos == (f->blob_file_size - BLOB_SIZE)) {
+		if (debug_file) {
+		    fprintf(debug_file, "%s: writing LAST blob header with pos %" PRIu64 "\n",
+			    __func__, f->blob_pos);
+		    fflush(debug_file);
+		}
+	    }
+	}
     }
 
     f->buf[f->buf_index++] = v;
