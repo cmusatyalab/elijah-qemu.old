@@ -71,6 +71,11 @@ def header_check(mem_file, out_file):
             passed = False
             break
 
+    for b in blobs:
+        if (b * BLOB_SIZE) >= file_size:
+            print "blob %d exceeds file size %d" % (blob * BLOB_SIZE, file_size)
+            break
+
     if passed:
         print "test passed (%d blobs, %d processed)" % (file_size / BLOB_SIZE, blob_count)
     else:

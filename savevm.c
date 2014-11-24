@@ -106,6 +106,8 @@
     do { } while (0)
 #endif
 
+extern FILE *debug_file;
+
 static int announce_self_create(uint8_t *buf,
 				uint8_t *mac_addr)
 {
@@ -1698,6 +1700,12 @@ int qemu_savevm_state_begin(QEMUFile *f, int blk_enable, int shared)
 
     num_pages = raw_dump_device_state(false, false);
 
+    if (debug_file) {
+	fprintf(debug_file, "%s: estimated file size %" PRIu64 " bytes\n",
+		__func__, num_pages * TARGET_PAGE_SIZE);
+	fflush(debug_file);
+    }
+
     // no read buffer checking done, and assumes buf->index == 0 etc.
     // i.e., we are the first and sole writer to this QEMUFile
     header = (uint64_t*)(f->buf + f->buf_index);
@@ -1849,6 +1857,12 @@ int qemu_savevm_state_complete(QEMUFile *f)
 	    continue;
 	}
 
+	if (debug_file) {
+	    fprintf(debug_file, "%s: non-live savevm handler %s at %" PRIu64 "\n",
+		    __func__, se->idstr, get_blob_pos(f));
+	    fflush(debug_file);
+	}
+
         /* Section type */
         qemu_put_byte(f, QEMU_VM_SECTION_FULL);
         qemu_put_be32(f, se->section_id);
@@ -1862,6 +1876,12 @@ int qemu_savevm_state_complete(QEMUFile *f)
         qemu_put_be32(f, se->version_id);
 
         vmstate_save(f, se);
+    }
+
+    if (debug_file) {
+	fprintf(debug_file, "%s: writing QEMU_VM_EOF at %" PRIu64 "\n",
+		__func__, get_blob_pos(f));
+	fflush(debug_file);
     }
 
     qemu_put_byte(f, QEMU_VM_EOF);

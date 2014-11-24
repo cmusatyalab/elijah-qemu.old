@@ -2282,6 +2282,8 @@ int qemu_init_main_loop(void)
 // TODO: Use QEMU Monitor
 QEMUFile *qemu_memfile = NULL;
 
+FILE *debug_file = NULL;
+
 int main(int argc, char **argv, char **envp)
 {
     int i;
@@ -2317,6 +2319,8 @@ int main(int argc, char **argv, char **envp)
     };
     const char *trace_events = NULL;
     const char *trace_file = NULL;
+
+    debug_file = fopen("/tmp/qemu_debug_messages", "w");
 
     atexit(qemu_run_exit_notifiers);
     error_set_progname(argv[0]);
@@ -3744,5 +3748,9 @@ int main(int argc, char **argv, char **envp)
     }
 
     cloudlet_end();
+
+    if (debug_file)
+	fclose(debug_file);
+
     return 0;
 }

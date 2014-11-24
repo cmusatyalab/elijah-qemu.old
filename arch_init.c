@@ -127,6 +127,8 @@ const uint32_t arch_type = QEMU_ARCH;
 #define ALL_EQ(v1, v2) ((v1) == (v2))
 #endif
 
+extern FILE *debug_file;
+
 int qemu_mmap_idx = 0;
 struct qemu_mmap_entry qemu_mmap_entries[QEMU_MMAP_MAX];
 
@@ -377,6 +379,12 @@ static uint64_t ram_save_raw_th(QEMUFile *f, void *opaque, bool live) {
 
 		last_blob_pos = block->blob_pos + TARGET_PAGE_SIZE * num_pages;
 		set_blob_pos(f, last_blob_pos);
+
+		if (debug_file) {
+			fprintf(debug_file, "%s: wrote ram block %s %" PRIu64 " bytes at %" PRIu64 "\n",
+				__func__, block->idstr, (uint64_t)block->length, block->blob_pos);
+			fflush(debug_file);
+		}
 	}
 
 	/* return last blob offset for use after bottom half, to set correct position */
@@ -463,6 +471,12 @@ int ram_save_raw_live(QEMUFile *f, int stage, void *opaque) {
 			set_blob_pos(f, last_blob_pos);
 			qemu_put_be64(f, RAM_SAVE_FLAG_EOS);
 			memory_global_dirty_log_stop();
+
+			if (debug_file) {
+				fprintf(debug_file, "%s: setting blob pos to %" PRIu64 "\n",
+					__func__, last_blob_pos);
+				fflush(debug_file);
+			}
 		}
 
 		if (stage == 2)
