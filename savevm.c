@@ -1890,6 +1890,12 @@ int qemu_savevm_state_complete(QEMUFile *f)
 	if (f->blob_pos < f->blob_file_size) {
 	    void *padding = NULL;
 
+	    if (debug_file) {
+		fprintf(debug_file, "%s: padding %" PRIu64 " bytes at %" PRIu64 "\n",
+			__func__, f->blob_file_size - f->blob_pos, get_blob_pos(f));
+		fflush(debug_file);
+	    }
+
 	    padding = g_malloc0(f->blob_file_size - f->blob_pos);
 	    qemu_put_buffer(f, padding, f->blob_file_size - f->blob_pos);
 	    qemu_fflush(f);
