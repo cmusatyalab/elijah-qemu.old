@@ -235,9 +235,9 @@ static ssize_t migrate_fd_put_buffer(void *opaque, const void *data,
     if (ret == -1)
         ret = -(s->get_error(s));
 
-//    if (ret == -EAGAIN) {
-//        qemu_set_fd_handler2(s->fd, NULL, NULL, migrate_fd_put_notify, s);
-//    }
+    if (ret == -EAGAIN) {
+        qemu_set_fd_handler2(s->fd, NULL, NULL, migrate_fd_put_notify, s);
+    }
 
     return ret;
 }
@@ -273,45 +273,6 @@ static void migrate_fd_put_ready(void *opaque)
                 vm_start();
             }
         }
-    }
-}
-
-static void migrate_fd_put_ready_raw(void *opaque)
-{
-    MigrationState *s = opaque;
-    int ret;
-
-    if (s->state != MIG_STATE_ACTIVE) {
-        DPRINTF("put_ready returning because of non-active state\n");
-        return;
-    }
-
-    DPRINTF("iterate\n");
-
-    for ( ; ; ) {
-	ret = qemu_savevm_state_iterate(s->file);
-	if (ret < 0) {
-	    migrate_fd_error(s);
-	    break;
-	} else if (ret == 1) {
-	    int old_vm_running = runstate_is_running();
-
-	    DPRINTF("done iterating\n");
-	    qemu_system_wakeup_request(QEMU_WAKEUP_REASON_OTHER);
-	    vm_stop_force_state(RUN_STATE_FINISH_MIGRATE);
-
-	    if (qemu_savevm_state_complete(s->file) < 0) {
-		migrate_fd_error(s);
-	    } else {
-		migrate_fd_completed(s);
-	    }
-	    if (s->state != MIG_STATE_COMPLETED) {
-		if (old_vm_running) {
-		    vm_start();
-		}
-	    }
-	    break;
-	}
     }
 }
 
@@ -356,7 +317,7 @@ static int migrate_fd_close(void *opaque)
 {
     MigrationState *s = opaque;
 
-//    qemu_set_fd_handler2(s->fd, NULL, NULL, NULL, NULL);
+    qemu_set_fd_handler2(s->fd, NULL, NULL, NULL, NULL);
     return s->close(s);
 }
 
@@ -442,7 +403,7 @@ void migrate_fd_connect_raw(MigrationState *s, raw_type type)
         migrate_fd_error(s);
         return;
     }
-    migrate_fd_put_ready_raw(s);
+    migrate_fd_put_ready(s);
 }
 
 static MigrationState *migrate_init(int blk, int inc)
