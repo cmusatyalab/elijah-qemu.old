@@ -1117,6 +1117,27 @@ Example:
 -> { "execute": "stop-raw-live" }
 <- { "return": {} }
 
+EQMP
+
+    {
+        .name       = "iterate-raw-live",
+        .args_type  = "",
+        .mhandler.cmd_new = qmp_marshal_input_iterate_raw_live,
+    },
+
+SQMP
+iterate-raw-live
+----
+
+Perform iteration in ongoing raw live migration.
+
+Arguments: None.
+
+Example:
+
+-> { "execute": "iterate-raw-live" }
+<- { "return": {} }
+
 
 3. Query Commands
 =================

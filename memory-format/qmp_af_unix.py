@@ -3,6 +3,7 @@
 
 import socket
 import json
+import time
 
 QMP_UNIX_SOCK = "/tmp/qmp_cloudlet"
 
@@ -42,11 +43,41 @@ class QmpAfUnix:
         else:
             return False
 
+    # returns True on success, False otherwise
+    def iterate_raw_live(self):
+        json_cmd = json.dumps({"execute":"iterate-raw-live"})
+        self.sock.sendall(json_cmd)
+        response = json.loads(self.sock.recv(1024))
+        if "return" in response:
+            return True
+        else:
+            return False
+
     def stop_raw_live_once(self):
         self.connect()
         ret = self.qmp_negotiate()
         if ret:
             ret = self.stop_raw_live()
+        self.disconnect()
+
+        return ret
+
+    def iterate_raw_live_once(self):
+        self.connect()
+        ret = self.qmp_negotiate()
+        time.sleep(20)
+        if ret:
+            print "iterating"
+            ret = self.iterate_raw_live()
+        if ret:
+            time.sleep(10)
+            print "iterating"
+            ret = self.iterate_raw_live()
+        if ret:
+            time.sleep(10)
+            print "stopping"
+            ret = self.stop_raw_live()
+
         self.disconnect()
 
         return ret

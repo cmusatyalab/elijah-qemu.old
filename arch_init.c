@@ -45,6 +45,7 @@
 #include "hw/pcspk.h"
 #include "cloudlet/qemu-cloudlet.h"
 
+// extern FILE *debug_file;
 
 //#define DEBUG_ARCH_INIT
 
@@ -416,6 +417,11 @@ static void ram_save_raw_bh(QEMUFile *f, void *opaque) {
 
 	DPRINTF("%s: wrote %d pages\n", __func__, count);
 
+//	if (debug_file) {
+//		fprintf(debug_file, "%s: wrote %d pages\n", __func__, count);
+//		fflush(debug_file);
+//	}
+
 	return;
 }
 
@@ -429,7 +435,7 @@ void ram_save_raw(QEMUFile *f, void *opaque) {
 }
 
 int ram_save_raw_live(QEMUFile *f, int stage, void *opaque) {
-	static int iterations = 0;
+//	static int iterations = 0;
 	static uint64_t last_blob_pos = 0;
 
 	if (!use_raw_live(f))
@@ -441,7 +447,7 @@ int ram_save_raw_live(QEMUFile *f, int stage, void *opaque) {
 	}
 
 	if (stage == 1) {
-		iterations = 1;
+//		iterations = 1;
 //		DPRINTF("%s: iteration %d stage %d\n",
 //			__func__, iterations, stage);
 		memory_global_dirty_log_start();
@@ -450,7 +456,7 @@ int ram_save_raw_live(QEMUFile *f, int stage, void *opaque) {
 	} else {
 		bool stage2_done = false;
 
-		iterations++;
+//		iterations++;
 //		DPRINTF("%s: iteration %d stage %d\n",
 //			__func__, iterations, stage);
 		memory_global_sync_dirty_bitmap(get_system_memory());
@@ -466,11 +472,11 @@ int ram_save_raw_live(QEMUFile *f, int stage, void *opaque) {
 		}
 
 		if (stage == 2)
-			stage2_done = check_notify_raw_live_stop(f);
+			stage2_done = check_raw_live_stop(f);
 
-		if (stage2_done)
-			fprintf(stderr, "%s: received raw-live-stop request %d iterations\n",
-				__func__, iterations);
+//		if (stage2_done)
+//			fprintf(stderr, "%s: received raw-live-stop request %d iterations\n",
+//				__func__, iterations);
 
 		return stage2_done;
 	}

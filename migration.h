@@ -131,8 +131,10 @@ uint64_t raw_dump_device_state(bool suspend, bool print);
 int qemu_savevm_dump_non_live(QEMUFile *f, bool suspend, bool print);
 void qemu_fopen_ops_buffered_wrapper(MigrationState *s);
 uint64_t raw_ram_total_pages(uint64_t total_device_size);
-void wait_raw_live_stop(QEMUFile *f);
-bool check_notify_raw_live_stop(QEMUFile *f);
+void raw_live_stop(QEMUFile *f);
+void raw_live_iterate(QEMUFile *f);
+void check_wait_raw_live_iterate(QEMUFile *f);
+bool check_raw_live_stop(QEMUFile *f);
 
 void init_migration_state(void);
 void clean_migration_state(void);

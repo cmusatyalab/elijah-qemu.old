@@ -21,7 +21,7 @@ from qmp_af_unix import *
 def delayed_stop():
     time.sleep(35)
     qmp = QmpAfUnix(QMP_UNIX_SOCK)
-    qmp.stop_raw_live_once()
+    qmp.iterate_raw_live_once()
 
 def main(xml_path):
     conn = libvirt.open("qemu:///session")

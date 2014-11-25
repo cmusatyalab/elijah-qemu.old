@@ -198,7 +198,9 @@ struct QEMUFile {
     blob_off_t blob_pos;
     blob_off_t blob_file_size;  /* first 8-byte header has this reported blob file size */
     QemuMutex raw_live_state_lock;
+    QemuCond raw_live_state_cv;
     bool raw_live_stop_requested; /* protected by raw_live_state_lock */
+    bool raw_live_iterate_requested; /* protected by raw_live_state_lock */
 //    int debug_fd;
 };
 
@@ -465,7 +467,9 @@ QEMUFile *qemu_fopen_ops(void *opaque, QEMUFilePutBufferFunc *put_buffer,
     f->blob_pos = 0;
     f->blob_file_size = 0;
     qemu_mutex_init(&f->raw_live_state_lock);
+    qemu_cond_init(&f->raw_live_state_cv);
     f->raw_live_stop_requested = false;
+    f->raw_live_iterate_requested = false;
 
 //    f->debug_fd = open("/tmp/debug.mem", O_WRONLY | O_CREAT | O_TRUNC, 0644);
 
@@ -578,6 +582,7 @@ int qemu_fclose(QEMUFile *f)
 //	close(f->debug_fd);
 
     qemu_mutex_destroy(&f->raw_live_state_lock);
+    qemu_cond_destroy(&f->raw_live_state_cv);
 
     /* If any error was spotted before closing, we should report it
      * instead of the close() return value.
@@ -2649,14 +2654,45 @@ int qemu_savevm_dump_non_live(QEMUFile *f, bool suspend, bool print)
     return num_pages_expected;
 }
 
-void wait_raw_live_stop(QEMUFile *f)
+void raw_live_stop(QEMUFile *f)
 {
     qemu_mutex_lock(&f->raw_live_state_lock);
     f->raw_live_stop_requested = true;
+    if (!f->raw_live_iterate_requested) {
+	f->raw_live_iterate_requested = true;
+	qemu_cond_broadcast(&f->raw_live_state_cv);
+    }
     qemu_mutex_unlock(&f->raw_live_state_lock);
 }
 
-bool check_notify_raw_live_stop(QEMUFile *f)
+void raw_live_iterate(QEMUFile *f)
+{
+    qemu_mutex_lock(&f->raw_live_state_lock);
+    if (!f->raw_live_iterate_requested) {
+	f->raw_live_iterate_requested = true;
+	qemu_cond_broadcast(&f->raw_live_state_cv);
+    }
+    qemu_mutex_unlock(&f->raw_live_state_lock);
+}
+
+void check_wait_raw_live_iterate(QEMUFile *f)
+{
+    qemu_mutex_lock(&f->raw_live_state_lock);
+    if (!f->raw_live_iterate_requested) {
+	for ( ; ; ) {
+	    qemu_cond_wait(&f->raw_live_state_cv,
+			   &f->raw_live_state_lock);
+
+	    if (f->raw_live_iterate_requested) {
+		f->raw_live_iterate_requested = false;
+		break;
+	    }
+	}
+    }
+    qemu_mutex_unlock(&f->raw_live_state_lock);
+}
+
+bool check_raw_live_stop(QEMUFile *f)
 {
     bool stopped = false;
 

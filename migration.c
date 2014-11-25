@@ -35,7 +35,7 @@
     do { } while (0)
 #endif
 
-extern FILE *debug_file;
+// extern FILE *debug_file;
 
 enum {
     MIG_STATE_ERROR,
@@ -141,8 +141,8 @@ MigrationInfo *qmp_query_migrate(Error **errp)
     MigrationInfo *info = g_malloc0(sizeof(*info));
     MigrationState *s = migrate_get_current();
 
-    if (debug_file)
-	fprintf(debug_file, "%s: called\n", __func__);
+//    if (debug_file)
+//	fprintf(debug_file, "%s: called\n", __func__);
 
     /*
     qemu_mutex_lock(&s->serial_lock);
@@ -231,11 +231,11 @@ MigrationInfo *qmp_query_migrate(Error **errp)
         break;
     }
 
-    if (debug_file) {
-	fprintf(debug_file, "%s: returning [%s]\n",
-		__func__, info->status);
-	fflush(debug_file);
-    }
+//    if (debug_file) {
+//	fprintf(debug_file, "%s: returning [%s]\n",
+//		__func__, info->status);
+//	fflush(debug_file);
+//    }
 
     return info;
 }
@@ -321,6 +321,7 @@ static void migrate_fd_put_ready(void *opaque)
 {
     MigrationState *s = opaque;
     int ret;
+    QEMUFile *f = s->file;
 
     if (s->state != MIG_STATE_ACTIVE) {
         DPRINTF("put_ready returning because of non-active state\n");
@@ -328,6 +329,13 @@ static void migrate_fd_put_ready(void *opaque)
     }
 
     for ( ; ; ) {
+	check_wait_raw_live_iterate(f);
+//	if (debug_file) {
+//	    fprintf(debug_file, "%s: doing iteration\n",
+//		    __func__);
+//	    fflush(debug_file);
+//	}
+
 	DPRINTF("iterate\n");
 	ret = qemu_savevm_state_iterate(s->file);
 	if (ret < 0) {
@@ -546,8 +554,8 @@ void qmp_migrate(const char *uri, bool has_blk, bool blk,
     s->ongoing = true;
     qemu_mutex_unlock(&s->serial_lock);
 
-    if (debug_file)
-	fprintf(debug_file, "%s: called\n", __func__);
+//    if (debug_file)
+//	fprintf(debug_file, "%s: called\n", __func__);
 
     if (s->state == MIG_STATE_ACTIVE) {
         error_set(errp, QERR_MIGRATION_ACTIVE);
@@ -631,5 +639,16 @@ void qmp_stop_raw_live(Error **err)
     if (s->state != MIG_STATE_ACTIVE)
         return;
 
-    wait_raw_live_stop(s->file);
+    raw_live_stop(s->file);
+}
+
+void qmp_iterate_raw_live(Error **err)
+{
+    MigrationState *s;
+
+    s = migrate_get_current();
+    if (s->state != MIG_STATE_ACTIVE)
+        return;
+
+    raw_live_iterate(s->file);
 }
