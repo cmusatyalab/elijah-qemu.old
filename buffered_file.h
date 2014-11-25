@@ -27,4 +27,6 @@ QEMUFile *qemu_fopen_ops_buffered(void *opaque, size_t xfer_limit,
                                   BufferedWaitForUnfreezeFunc *wait_for_unfreeze,
                                   BufferedCloseFunc *close);
 
+MigrationState *qemu_buffered_file_to_state(QEMUFile *f);
+
 #endif

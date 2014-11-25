@@ -2633,7 +2633,7 @@ int qemu_savevm_dump_non_live(QEMUFile *f, bool suspend, bool print)
     return num_pages_expected;
 }
 
-void wait_raw_live_stop(QEMUFile *f)
+void raw_live_stop(QEMUFile *f)
 {
     qemu_mutex_lock(&f->raw_live_state_lock);
     f->raw_live_stop_requested = true;

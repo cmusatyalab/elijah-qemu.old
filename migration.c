@@ -524,5 +524,17 @@ void qmp_stop_raw_live(Error **err)
     if (s->state != MIG_STATE_ACTIVE)
         return;
 
-    wait_raw_live_stop(s->file);
+    raw_live_stop(s->file);
+    raw_live_schedule_iteration(s);
+}
+
+void qmp_iterate_raw_live(Error **err)
+{
+    MigrationState *s;
+
+    s = migrate_get_current();
+    if (s->state != MIG_STATE_ACTIVE)
+        return;
+
+    raw_live_schedule_iteration(s);
 }
