@@ -428,26 +428,9 @@ void ram_save_raw(QEMUFile *f, void *opaque) {
 	qemu_put_be64(f, RAM_SAVE_FLAG_EOS);
 }
 
-static void raw_live_trigger_iteration(void *opaque)
-{
-	MigrationState *s = (MigrationState *)opaque;
-
-	qemu_del_timer(s->timer);
-	qemu_free_timer(s->timer);
-
-	s->put_ready(s);
-}
-
-void raw_live_schedule_iteration(MigrationState *s)
-{
-	s->timer = qemu_new_timer_ms(rt_clock, raw_live_trigger_iteration, s);
-	qemu_mod_timer(s->timer, qemu_get_clock_ms(rt_clock));
-}
-
 int ram_save_raw_live(QEMUFile *f, int stage, void *opaque) {
 	static int iterations = 0;
 	static uint64_t last_blob_pos = 0;
-	static bool th_done = false;
 
 	if (!use_raw_live(f))
 		return 0;
@@ -458,24 +441,14 @@ int ram_save_raw_live(QEMUFile *f, int stage, void *opaque) {
 	}
 
 	if (stage == 1) {
-		MigrationState *s;
-
-		th_done = false;
-		s = qemu_buffered_file_to_state(f);
-		/* trigger migrate_fd_put_ready to execute top half */
-		raw_live_schedule_iteration(s);
-
+		iterations = 1;
+//		DPRINTF("%s: iteration %d stage %d\n",
+//			__func__, iterations, stage);
+		memory_global_dirty_log_start();
+		last_blob_pos = ram_save_raw_th(f, opaque, true);
 		return 0;
 	} else {
 		bool stage2_done = false;
-
-		if (!th_done) {
-			iterations = 1;
-			memory_global_dirty_log_start();
-			last_blob_pos = ram_save_raw_th(f, opaque, true);
-			th_done = true;
-			return 0;
-		}
 
 		iterations++;
 //		DPRINTF("%s: iteration %d stage %d\n",

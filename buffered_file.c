@@ -185,8 +185,8 @@ static int buffered_close(void *opaque)
 
     ret = s->close(s->opaque);
 
-//    qemu_del_timer(s->timer);
-//    qemu_free_timer(s->timer);
+    qemu_del_timer(s->timer);
+    qemu_free_timer(s->timer);
     g_free(s->buffer);
     g_free(s);
 
@@ -285,23 +285,9 @@ QEMUFile *qemu_fopen_ops_buffered(void *opaque,
                              buffered_set_rate_limit,
 			     buffered_get_rate_limit);
 
-//    s->timer = qemu_new_timer_ms(rt_clock, buffered_rate_tick, s);
+    s->timer = qemu_new_timer_ms(rt_clock, buffered_rate_tick, s);
 
-//    qemu_mod_timer(s->timer, qemu_get_clock_ms(rt_clock) + 100);
+    qemu_mod_timer(s->timer, qemu_get_clock_ms(rt_clock) + 100);
 
     return s->file;
-}
-
-MigrationState *qemu_buffered_file_to_state(QEMUFile *f)
-{
-    QEMUFileBuffered *s;
-
-    if (!f)
-        return NULL;
-
-    s = (QEMUFileBuffered*)f->opaque;
-    if (!s)
-        return NULL;
-
-    return (MigrationState*)s->opaque;
 }
