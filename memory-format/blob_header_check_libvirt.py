@@ -95,15 +95,8 @@ def header_check(mem_file, out_file):
             return
 
         blob = blob_offset / BLOB_SIZE
-        if blob in blobs:
-            print "duplicated blob at :%ld" % blob_offset
-            return
         blobs.add(blob)
-
         blob_count += 1
-
-#        if blob_count < 200:
-#            print "blob %d" % (blob_offset / BLOB_SIZE)
 
         page = mem_file.read(BLOB_SIZE)
 
@@ -124,10 +117,17 @@ def header_check(mem_file, out_file):
             passed = False
             break
 
+    # check for blobs at offset beyond reported file size
+    for b in blobs:
+        if (b * BLOB_SIZE) >= file_size:
+            print "blob % exceeds reported file size"
+            passed = False
+            break
+
     if passed:
         print "test passed (%d blobs, %d processed)" % (file_size / BLOB_SIZE, blob_count)
     else:
-        print "test failed (some blobs are missing)"
+        print "test failed"
 
 
 def process_libvirt_header(mem_file_fd):

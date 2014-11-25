@@ -46,11 +46,7 @@ def header_check(mem_file, out_file):
 
         blob = blob_offset / BLOB_SIZE
         blobs.add(blob)
-
         blob_count += 1
-
-#        if blob_count < 200:
-#            print "blob %d" % (blob_offset / BLOB_SIZE)
 
         page = mem_file.read(BLOB_SIZE)
 
@@ -71,6 +67,7 @@ def header_check(mem_file, out_file):
             passed = False
             break
 
+    # check for blobs at offset beyond reported file size
     for b in blobs:
         if (b * BLOB_SIZE) >= file_size:
             print "blob % exceeds reported file size"
@@ -80,7 +77,7 @@ def header_check(mem_file, out_file):
     if passed:
         print "test passed (%d blobs, %d processed)" % (file_size / BLOB_SIZE, blob_count)
     else:
-        print "test failed (some blobs are missing)"
+        print "test failed"
 
 def main(argv=None):
     parser = argparse.ArgumentParser()
