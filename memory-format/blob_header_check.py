@@ -5,15 +5,19 @@ import struct
 import argparse
 
 # qemu writes each blob header as uint64_t, in native-endian
-BLOB_HEADER_FMT = "=Q"
-BLOB_SIZE       = 4096
+BLOB_HEADER_FMT  = "=Q"
+BLOB_HEADER_SIZE = struct.calcsize(BLOB_HEADER_FMT)
+BLOB_SIZE        = 4096
+
+ITER_SEQ_BITS   = 16
+ITER_SEQ_SHIFT  = BLOB_HEADER_SIZE * 8 - ITER_SEQ_BITS
+BLOB_POS_MASK   = (1 << ITER_SEQ_SHIFT) - 1
+ITER_SEQ_MASK   = ((1 << (BLOB_HEADER_SIZE * 8)) - 1) - BLOB_POS_MASK
 
 def header_check(mem_file, out_file):
-    header_size = struct.calcsize(BLOB_HEADER_FMT)
-
     # first 8 bytes is file size
-    header = mem_file.read(header_size)
-    if len(header) != header_size:
+    header = mem_file.read(BLOB_HEADER_SIZE)
+    if len(header) != BLOB_HEADER_SIZE:
         print "couldn't read valid file size header"
         return
     file_size, = struct.unpack(BLOB_HEADER_FMT, header)
@@ -22,23 +26,21 @@ def header_check(mem_file, out_file):
         print "reported file size (%d bytes) is not aligned at BLOB_SIZE boundary" % file_size
         return
 
+    count_per_seq = {}
     blobs = set()
     blob_count = 0
+
     while True:
-        header = mem_file.read(header_size)
+        header = mem_file.read(BLOB_HEADER_SIZE)
         if len(header) == 0:
             break
 
-        if len(header) != header_size:
+        if len(header) != BLOB_HEADER_SIZE:
             print "couldn't read valid blob header"
             break
         blob_offset, = struct.unpack(BLOB_HEADER_FMT, header)
-
-# check for sequentially written blobs
-#        if blob_offset != BLOB_SIZE * blob_count:
-#            print "blob offset doesn't match expected value ",
-#            print "(offset %d expected %d)" % (blob_offset, BLOB_SIZE * blob_count)
-#            return
+        iter_seq = (blob_offset & ITER_SEQ_MASK) >> ITER_SEQ_SHIFT
+        blob_offset = blob_offset & BLOB_POS_MASK
 
         if (blob_offset % BLOB_SIZE) != 0:
             print "offset in blob header is not aligned"
@@ -47,6 +49,9 @@ def header_check(mem_file, out_file):
         blob = blob_offset / BLOB_SIZE
         blobs.add(blob)
         blob_count += 1
+        if iter_seq not in count_per_seq:
+            count_per_seq[iter_seq] = 0
+        count_per_seq[iter_seq] += 1
 
         page = mem_file.read(BLOB_SIZE)
 
@@ -63,7 +68,7 @@ def header_check(mem_file, out_file):
     passed = True
     for b in range(file_size / BLOB_SIZE):
         if b not in blobs:
-            print "blob %d is missing"
+            print "blob %d is missing" % b
             passed = False
             break
 
@@ -76,6 +81,8 @@ def header_check(mem_file, out_file):
 
     if passed:
         print "test passed (%d blobs, %d processed)" % (file_size / BLOB_SIZE, blob_count)
+        for iter_seq in count_per_seq:
+            print "iteration %4d: %8d blobs" % (iter_seq, count_per_seq[iter_seq])
     else:
         print "test failed"
 

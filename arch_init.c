@@ -45,8 +45,6 @@
 #include "hw/pcspk.h"
 #include "cloudlet/qemu-cloudlet.h"
 
-// extern FILE *debug_file;
-
 //#define DEBUG_ARCH_INIT
 
 #ifdef DEBUG_ARCH_INIT
@@ -296,10 +294,6 @@ static void sort_ram_list(void) {
 	g_free(blocks);
 }
 
-/* defined in savevm.c */
-uint64_t get_blob_pos(struct QEMUFile *f);
-void set_blob_pos(QEMUFile *f, uint64_t pos);
-
 static uint64_t ram_save_raw_th(QEMUFile *f, void *opaque, bool live) {
 	RAMBlock *block;
 	uint64_t last_blob_pos = 0;
@@ -388,8 +382,6 @@ static void ram_save_raw_bh(QEMUFile *f, void *opaque) {
 	RAMBlock *block;
 	int count = 0;
 
-	DPRINTF("%s: bottom half --------\n", __func__);
-
 	/* flush all blocks */
 	QLIST_FOREACH(block, &ram_list.blocks, next) {
 		ram_addr_t offset;
@@ -415,12 +407,12 @@ static void ram_save_raw_bh(QEMUFile *f, void *opaque) {
 	/* this flag has been written in top half */
 	// qemu_put_be64(f, RAM_SAVE_FLAG_EOS);
 
-	DPRINTF("%s: wrote %d pages\n", __func__, count);
-
-//	if (debug_file) {
-//		fprintf(debug_file, "%s: wrote %d pages\n", __func__, count);
-//		fflush(debug_file);
-//	}
+#ifdef USE_MIGRATION_DEBUG_FILE
+	if (debug_file) {
+		fprintf(debug_file, "%s: wrote %d pages\n", __func__, count);
+		fflush(debug_file);
+	}
+#endif
 
 	return;
 }

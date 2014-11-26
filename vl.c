@@ -235,7 +235,9 @@ uint8_t *boot_splash_filedata;
 int boot_splash_filedata_size;
 uint8_t qemu_extra_params_fw[2];
 
-// FILE *debug_file;
+#ifdef USE_MIGRATION_DEBUG_FILE
+FILE *debug_file;
+#endif
 
 #define DEBUG_VL
 #ifdef DEBUG_VL
@@ -2319,7 +2321,9 @@ int main(int argc, char **argv, char **envp)
     const char *trace_events = NULL;
     const char *trace_file = NULL;
 
-//    debug_file = fopen("/tmp/qemu_debug_messages", "w");
+#ifdef USE_MIGRATION_DEBUG_FILE
+    debug_file = fopen(MIGRATION_DEBUG_FILE, "w");
+#endif
 
     atexit(qemu_run_exit_notifiers);
     error_set_progname(argv[0]);
@@ -2782,11 +2786,6 @@ int main(int argc, char **argv, char **envp)
                 default_monitor = 0;
                 break;
             case QEMU_OPTION_qmp:
-//		if (debug_file) {
-//		    fprintf(debug_file, "%s: qmp control\n", __func__);
-//		    fflush(debug_file);
-//		}
-
                 monitor_parse(optarg, "control");
                 default_monitor = 0;
                 break;
@@ -3755,7 +3754,9 @@ int main(int argc, char **argv, char **envp)
 
     cloudlet_end();
 
-//    fclose(debug_file);
+#ifdef USE_MIGRATION_DEBUG_FILE
+    fclose(debug_file);
+#endif
     clean_migration_state();
 
     return 0;

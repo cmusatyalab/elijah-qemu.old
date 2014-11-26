@@ -35,8 +35,6 @@
     do { } while (0)
 #endif
 
-// extern FILE *debug_file;
-
 enum {
     MIG_STATE_ERROR,
     MIG_STATE_SETUP,
@@ -141,42 +139,6 @@ MigrationInfo *qmp_query_migrate(Error **errp)
     MigrationInfo *info = g_malloc0(sizeof(*info));
     MigrationState *s = migrate_get_current();
 
-//    if (debug_file)
-//	fprintf(debug_file, "%s: called\n", __func__);
-
-    /*
-    qemu_mutex_lock(&s->serial_lock);
-    if (s->ongoing) {
-	qemu_mutex_unlock(&s->serial_lock);
-
-        info->has_status = true;
-        info->status = g_strdup("active");
-
-	// return dummy numbers
-        info->has_ram = true;
-        info->ram = g_malloc0(sizeof(*info->ram));
-        info->ram->transferred = 1024;
-	info->ram->remaining = 1024;
-        info->ram->total = 2048;
-
-        if (blk_mig_active()) {
-            info->has_disk = true;
-            info->disk = g_malloc0(sizeof(*info->disk));
-            info->disk->transferred = 1024;
-            info->disk->remaining = 1024;
-            info->disk->total = 2048;
-        }
-
-	if (debug_file) {
-	    fprintf(debug_file, "%s: returning active (1)\n", __func__);
-	    fflush(debug_file);
-	}
-
-        return info;
-    }
-    qemu_mutex_unlock(&s->serial_lock);
-    */
-
     switch (s->state) {
     case MIG_STATE_SETUP:
         /* no migration has happened ever */
@@ -199,23 +161,6 @@ MigrationInfo *qmp_query_migrate(Error **errp)
             info->disk->total = blk_mig_bytes_total();
         }
 
-	/*
-	// return dummy numbers
-        info->has_ram = true;
-        info->ram = g_malloc0(sizeof(*info->ram));
-        info->ram->transferred = 1024;
-	info->ram->remaining = 1024;
-        info->ram->total = 2048;
-
-        if (blk_mig_active()) {
-            info->has_disk = true;
-            info->disk = g_malloc0(sizeof(*info->disk));
-            info->disk->transferred = 1024;
-            info->disk->remaining = 1024;
-            info->disk->total = 2048;
-        }
-	*/
-
         break;
     case MIG_STATE_COMPLETED:
         info->has_status = true;
@@ -230,12 +175,6 @@ MigrationInfo *qmp_query_migrate(Error **errp)
         info->status = g_strdup("cancelled");
         break;
     }
-
-//    if (debug_file) {
-//	fprintf(debug_file, "%s: returning [%s]\n",
-//		__func__, info->status);
-//	fflush(debug_file);
-//    }
 
     return info;
 }
@@ -330,13 +269,16 @@ static void migrate_fd_put_ready(void *opaque)
 
     for ( ; ; ) {
 	check_wait_raw_live_iterate(f);
-//	if (debug_file) {
-//	    fprintf(debug_file, "%s: doing iteration\n",
-//		    __func__);
-//	    fflush(debug_file);
-//	}
+#ifdef USE_MIGRATION_DEBUG_FILE
+	if (debug_file) {
+	    fprintf(debug_file, "%s: doing iteration\n",
+		    __func__);
+	    fflush(debug_file);
+	}
+#endif
 
 	DPRINTF("iterate\n");
+	inc_iter_seq(f);
 	ret = qemu_savevm_state_iterate(s->file);
 	if (ret < 0) {
 	    migrate_fd_error(s);
@@ -348,6 +290,11 @@ static void migrate_fd_put_ready(void *opaque)
 	    qemu_system_wakeup_request(QEMU_WAKEUP_REASON_OTHER);
 	    vm_stop_force_state(RUN_STATE_FINISH_MIGRATE);
 
+	    /*
+	     * note last iteration writes frozen memory pages and
+	     * output of non-live savevm handlers
+	     */
+	    inc_iter_seq(f);
 	    if (qemu_savevm_state_complete(s->file) < 0) {
 		migrate_fd_error(s);
 	    } else {
@@ -473,6 +420,7 @@ static void *raw_migrate_core(void *data)
     int ret;
 
     DPRINTF("beginning savevm\n");
+    reset_iter_seq(s->file);
     ret = qemu_savevm_state_begin(s->file, s->blk, s->shared);
     if (ret < 0) {
         DPRINTF("failed, %d\n", ret);

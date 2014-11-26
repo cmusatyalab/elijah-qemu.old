@@ -175,6 +175,9 @@ void qemu_announce_self(void)
 
 #define BLOB_SIZE 4096
 typedef uint64_t blob_off_t;
+#define ITER_SEQ_BITS 16
+#define ITER_SEQ_SHIFT (sizeof(blob_off_t) * 8 - ITER_SEQ_BITS)
+#define BLOB_POS_MASK  ((((blob_off_t)1) << ITER_SEQ_SHIFT) - 1)
 
 struct QEMUFile {
     QEMUFilePutBufferFunc *put_buffer;
@@ -197,6 +200,8 @@ struct QEMUFile {
 
     blob_off_t blob_pos;
     blob_off_t blob_file_size;  /* first 8-byte header has this reported blob file size */
+    uint64_t   iter_seq;
+
     QemuMutex raw_live_state_lock;
     QemuCond raw_live_state_cv;
     bool raw_live_stop_requested; /* protected by raw_live_state_lock */
@@ -204,10 +209,19 @@ struct QEMUFile {
 //    int debug_fd;
 };
 
-uint64_t get_blob_pos(struct QEMUFile *f);
 uint64_t get_blob_pos(struct QEMUFile *f)
 {
     return (uint64_t)f->blob_pos;
+}
+
+void reset_iter_seq(struct QEMUFile *f)
+{
+    f->iter_seq = 0;
+}
+
+void inc_iter_seq(struct QEMUFile *f)
+{
+    f->iter_seq++;
 }
 
 typedef struct QEMUFileStdio
@@ -466,6 +480,7 @@ QEMUFile *qemu_fopen_ops(void *opaque, QEMUFilePutBufferFunc *put_buffer,
     f->is_write = 0;
     f->blob_pos = 0;
     f->blob_file_size = 0;
+    f->iter_seq = 0;
     qemu_mutex_init(&f->raw_live_state_lock);
     qemu_cond_init(&f->raw_live_state_cv);
     f->raw_live_stop_requested = false;
@@ -616,8 +631,14 @@ void qemu_put_buffer(QEMUFile *f, const uint8_t *buf, size_t size)
 	    if (sizeof(blob_off_t) > IO_BUF_SIZE - f->buf_index)
 		qemu_fflush(f);
 
+	    if (f->blob_pos & ~BLOB_POS_MASK) {
+		fprintf(stderr, "blob offset %" PRIu64 " exceeds limit\n",
+			f->blob_pos);
+		abort();
+	    }
+
 	    header = (blob_off_t*)(f->buf + f->buf_index);
-	    *header = f->blob_pos;
+	    *header = f->blob_pos | (f->iter_seq << ITER_SEQ_SHIFT);
 	    f->buf_index += sizeof(blob_off_t);
 
 	    if (f->buf_index >= IO_BUF_SIZE)
@@ -658,8 +679,14 @@ void qemu_put_byte(QEMUFile *f, int v)
 	if (sizeof(blob_off_t) > IO_BUF_SIZE - f->buf_index)
 	    qemu_fflush(f);
 
+	    if (f->blob_pos & ~BLOB_POS_MASK) {
+		fprintf(stderr, "blob offset %" PRIu64 " exceeds limit\n",
+			f->blob_pos);
+		abort();
+	    }
+
 	header = (blob_off_t*)(f->buf + f->buf_index);
-	*header = f->blob_pos;
+	*header = f->blob_pos | (f->iter_seq << ITER_SEQ_SHIFT);
 	f->buf_index += sizeof(blob_off_t);
 
         if (f->buf_index >= IO_BUF_SIZE)
@@ -681,7 +708,6 @@ void qemu_put_byte(QEMUFile *f, int v)
 }
 
 /* Needs to be used with BLOB_SIZE-aligned pos */
-void set_blob_pos(QEMUFile *f, uint64_t pos);
 void set_blob_pos(QEMUFile *f, uint64_t pos)
 {
     void *padding = NULL;

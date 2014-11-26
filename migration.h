@@ -139,4 +139,17 @@ bool check_raw_live_stop(QEMUFile *f);
 void init_migration_state(void);
 void clean_migration_state(void);
 
+uint64_t get_blob_pos(struct QEMUFile *f);
+void set_blob_pos(QEMUFile *f, uint64_t pos);
+
+void reset_iter_seq(struct QEMUFile *);
+void inc_iter_seq(struct QEMUFile *);
+
+// #define USE_MIGRATION_DEBUG_FILE
+
+#ifdef USE_MIGRATION_DEBUG_FILE
+extern FILE *debug_file;
+#define MIGRATION_DEBUG_FILE "/tmp/qemu_debug_messages"
+#endif
+
 #endif

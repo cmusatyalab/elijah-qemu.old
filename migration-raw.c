@@ -100,13 +100,13 @@ int raw_start_outgoing_migration(MigrationState *s, const char *fdname, raw_type
     migrate_fd_connect_raw(s, type);
     return 0;
 
-err_after_open:
+// err_after_open:
     close(s->fd);
 err_after_get_fd:
     return -1;
 }
 
- /*
+/*
 int raw_start_outgoing_migration(MigrationState *s, const char *fdname, raw_type type)
 {
     s->fd = open(fdname, O_CREAT | O_WRONLY | O_TRUNC, 00644);
@@ -127,13 +127,12 @@ int raw_start_outgoing_migration(MigrationState *s, const char *fdname, raw_type
     migrate_fd_connect_raw(s, type);
     return 0;
 
-err_after_open:
+// err_after_open:
     close(s->fd);
 err_after_get_fd:
     return -1;
 }
- */
-
+*/
 
 static void raw_accept_incoming_migration(void *opaque)
 {
@@ -245,7 +244,7 @@ uint64_t raw_dump_device_state(bool suspend, bool print)
 
     return num_pages;
 
-err_after_open:
+// err_after_open:
     close(s->fd);
 err_after_get_fd:
     return 0;  // returns 0 pages on error
