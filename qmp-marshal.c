@@ -1355,6 +1355,7 @@ int qmp_marshal_input_stop_raw_live(Monitor *mon, const QDict *qdict, QObject **
 
 out:
 
+
     if (local_err) {
         qerror_report_err(local_err);
         error_free(local_err);
@@ -1375,6 +1376,7 @@ int qmp_marshal_input_iterate_raw_live(Monitor *mon, const QDict *qdict, QObject
     qmp_iterate_raw_live(errp);
 
 out:
+
 
     if (local_err) {
         qerror_report_err(local_err);
