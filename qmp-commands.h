@@ -126,4 +126,5 @@ int qmp_marshal_input_xen_save_devices_state(Monitor *mon, const QDict *qdict, Q
 void qmp_device_del(const char * id, Error **errp);
 int qmp_marshal_input_device_del(Monitor *mon, const QDict *qdict, QObject **ret);
 
+
 #endif
