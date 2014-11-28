@@ -1364,6 +1364,10 @@ out:
     return 0;
 }
 
+#ifdef USE_MIGRATION_DEBUG_FILE
+extern FILE *debug_file;
+#endif
+
 int qmp_marshal_input_iterate_raw_live(Monitor *mon, const QDict *qdict, QObject **ret)
 {
     Error *local_err = NULL;
@@ -1373,6 +1377,14 @@ int qmp_marshal_input_iterate_raw_live(Monitor *mon, const QDict *qdict, QObject
     if (error_is_set(errp)) {
         goto out;
     }
+
+#ifdef USE_MIGRATION_DEBUG_FILE
+    if (debug_file) {
+	fprintf(debug_file, "%s: called\n", __func__);
+	fflush(debug_file);
+    }
+#endif
+
     qmp_iterate_raw_live(errp);
 
 out:
