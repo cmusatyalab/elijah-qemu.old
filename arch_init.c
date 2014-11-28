@@ -374,6 +374,9 @@ static uint64_t ram_save_raw_th(QEMUFile *f, void *opaque, bool live) {
 		set_blob_pos(f, last_blob_pos);
 	}
 
+	/* increment iteration number for next round */
+	inc_iter_seq(f);
+
 	/* return last blob offset for use after bottom half, to set correct position */
 	return last_blob_pos;
 }
@@ -413,6 +416,13 @@ static void ram_save_raw_bh(QEMUFile *f, void *opaque) {
 		fflush(debug_file);
 	}
 #endif
+
+	/*
+	 * increment iteration number for next round, only when one or more
+	 * pages have been written.
+	 */
+	if (count)
+		inc_iter_seq(f);
 
 	return;
 }

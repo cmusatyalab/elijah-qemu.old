@@ -2704,7 +2704,9 @@ void raw_live_iterate(QEMUFile *f)
 void check_wait_raw_live_iterate(QEMUFile *f)
 {
     qemu_mutex_lock(&f->raw_live_state_lock);
-    if (!f->raw_live_iterate_requested) {
+    if (f->raw_live_iterate_requested) {
+	f->raw_live_iterate_requested = false;
+    } else {
 	for ( ; ; ) {
 	    qemu_cond_wait(&f->raw_live_state_cv,
 			   &f->raw_live_state_lock);

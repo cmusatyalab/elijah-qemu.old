@@ -278,7 +278,6 @@ static void migrate_fd_put_ready(void *opaque)
 #endif
 
 	DPRINTF("iterate\n");
-	inc_iter_seq(f);
 	ret = qemu_savevm_state_iterate(s->file);
 	if (ret < 0) {
 	    migrate_fd_error(s);
@@ -294,7 +293,6 @@ static void migrate_fd_put_ready(void *opaque)
 	     * note last iteration writes frozen memory pages and
 	     * output of non-live savevm handlers
 	     */
-	    inc_iter_seq(f);
 	    if (qemu_savevm_state_complete(s->file) < 0) {
 		migrate_fd_error(s);
 	    } else {
