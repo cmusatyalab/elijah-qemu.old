@@ -135,6 +135,7 @@ void raw_live_stop(QEMUFile *f);
 void raw_live_iterate(QEMUFile *f);
 void check_wait_raw_live_iterate(QEMUFile *f);
 bool check_raw_live_stop(QEMUFile *f);
+void clear_raw_live_iterate(QEMUFile *f);
 
 void init_migration_state(void);
 void clean_migration_state(void);

@@ -425,6 +425,9 @@ static void *raw_migrate_core(void *data)
         migrate_fd_error(s);
         return NULL;
     }
+    /* ignore iterate requests issued before top half finished */
+    clear_raw_live_iterate(s->file);
+
     migrate_fd_put_ready(s);
 
     qemu_mutex_lock(&s->serial_lock);

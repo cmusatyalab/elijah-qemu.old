@@ -776,17 +776,18 @@ int ram_load_raw(QEMUFile *f, void *opaque, int version_id) {
 			 DPRINTF("---------------------------------------------------\n");
 
 			if (block) {
-				void *mapped_addr;
+//				void *mapped_addr;
 
-				DPRINTF(
-						"ram_load_raw(): mapping [%s], size: %llu, block->offset: %llu, host: %p\n",
-						block->idstr, (unsigned long long)block->length, (unsigned long long) block->offset, block->host);
+//				DPRINTF("ram_load_raw(): mapping [%s], size: %llu, block->offset: %llu, host: %p\n",
+//					block->idstr, (unsigned long long)block->length, (unsigned long long) block->offset, block->host);
 
-				mapped_addr = qemu_mmap_mem(f, (void *) block->host,
-							    block->length);
+//				mapped_addr = qemu_mmap_mem(f, (void *) block->host,
+//							    block->length);
+				qemu_mmap_mem(f, (void *) block->host,
+					      block->length);
 
-				DPRINTF("ram_load_raw(): mapped [%s], host: %p\n",
-						block->idstr, mapped_addr);
+//				DPRINTF("ram_load_raw(): mapped [%s], host: %p\n",
+//					block->idstr, mapped_addr);
 
 				/* Adjust offset */
 				qemu_fseek(f, block->length, SEEK_CUR);

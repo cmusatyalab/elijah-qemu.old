@@ -2733,3 +2733,12 @@ bool check_raw_live_stop(QEMUFile *f)
 
     return stopped;
 }
+
+/* ignore iterate request, unless stop request has been issued */
+void clear_raw_live_iterate(QEMUFile *f)
+{
+    qemu_mutex_lock(&f->raw_live_state_lock);
+    if (f->raw_live_iterate_requested && !f->raw_live_stop_requested)
+	f->raw_live_iterate_requested = false;
+    qemu_mutex_unlock(&f->raw_live_state_lock);
+}

@@ -242,6 +242,8 @@ static int64_t buffered_get_rate_limit(void *opaque)
 }
 
 static void buffered_rate_tick(void *opaque)
+    __attribute__((unused));
+static void buffered_rate_tick(void *opaque)
 {
     QEMUFileBuffered *s = opaque;
 
