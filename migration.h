@@ -153,4 +153,10 @@ extern FILE *debug_file;
 #define MIGRATION_DEBUG_FILE "/tmp/qemu_debug_messages"
 #endif
 
+/*
+ * comment this out to disable a randomized order of memory pages
+ * written in the first iteration of raw-live and raw-suspend.
+ */
+#define MIGRATION_RAW_RANDOMIZATION
+
 #endif

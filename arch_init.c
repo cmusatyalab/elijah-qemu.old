@@ -310,11 +310,16 @@ static uint64_t ram_save_raw_th(QEMUFile *f, void *opaque, bool live) {
 		qemu_put_be64(f, block->length);
 	}
 
+#ifdef MIGRATION_RAW_RANDOMIZATION
 	g_random_set_seed(12345);
+#endif
 
 	/* flush all blocks */
 	QLIST_FOREACH(block, &ram_list.blocks, next) {
-		uint32_t i, j, temp, *random;
+		uint32_t i;
+#ifdef MIGRATION_RAW_RANDOMIZATION
+		uint32_t j, temp, *random;
+#endif
 		uint32_t num_pages;
 		ram_addr_t padding;
 
@@ -346,6 +351,7 @@ static uint64_t ram_save_raw_th(QEMUFile *f, void *opaque, bool live) {
 
 		num_pages = block->length / TARGET_PAGE_SIZE;
 
+#ifdef MIGRATION_RAW_RANDOMIZATION
 		/* first generate random order in which pages (= blobs) are writen */
 		random = g_malloc(sizeof(uint32_t) * num_pages);
 		for (i = 0; i < num_pages; i++)
@@ -356,19 +362,28 @@ static uint64_t ram_save_raw_th(QEMUFile *f, void *opaque, bool live) {
 			random[j] = random[i];
 			random[i] = temp;
 		}
+#endif
 
 		for (i = 0; i < num_pages; i++) {
-			set_blob_pos(f, block->blob_pos + TARGET_PAGE_SIZE * random[i]);
+#ifdef MIGRATION_RAW_RANDOMIZATION
+			uint32_t pfn = random[i];
+#else
+			uint32_t pfn = i;
+#endif
+
+			set_blob_pos(f, block->blob_pos + TARGET_PAGE_SIZE * pfn);
 
 			/* clear dirty marking */
 			if (live)
-				memory_region_reset_dirty(block->mr, TARGET_PAGE_SIZE * random[i],
+				memory_region_reset_dirty(block->mr, TARGET_PAGE_SIZE * pfn,
 							  TARGET_PAGE_SIZE, DIRTY_MEMORY_MIGRATION);
-			qemu_put_buffer(f, block->host + TARGET_PAGE_SIZE * random[i],
+			qemu_put_buffer(f, block->host + TARGET_PAGE_SIZE * pfn,
 					TARGET_PAGE_SIZE);
 		}
 
+#ifdef MIGRATION_RAW_RANDOMIZATION
 		g_free(random);
+#endif
 
 		last_blob_pos = block->blob_pos + TARGET_PAGE_SIZE * num_pages;
 		set_blob_pos(f, last_blob_pos);
