@@ -15,13 +15,13 @@ import time
 from multiprocessing import Process
 from qmp_af_unix import *
 
-# stop raw live after 20 seconds
 # NOTE: qemu doesn't erase unix socket file,
 # so might want to clean it up manually
 def delayed_stop():
     time.sleep(35)
     qmp = QmpAfUnix(QMP_UNIX_SOCK)
-    qmp.iterate_raw_live_once()
+    ts = qmp.iterate_raw_live_once()
+    print "VM suspended at %.6f" % ts
 
 def main(xml_path):
     conn = libvirt.open("qemu:///session")

@@ -33,15 +33,23 @@ class QmpAfUnix:
         else:
             return False
 
-    # returns True on success, False otherwise
+    # returns timestamp of VM suspend on success, None otherwise
     def stop_raw_live(self):
         json_cmd = json.dumps({"execute":"stop-raw-live"})
         self.sock.sendall(json_cmd)
         response = json.loads(self.sock.recv(1024))
-        if "return" in response:
-            return True
-        else:
-            return False
+        if "return" not in response:
+            return None
+
+        # wait for QEVENT_STOP in next 10 responses
+        for i in range(10):
+            response = json.loads(self.sock.recv(1024))
+            if "event" in response and response["event"] == "STOP":
+                timestamp = response["timestamp"]
+                ts = float(timestamp["seconds"]) + float(timestamp["microseconds"]) / 1000000
+                return ts
+
+        return None
 
     # returns True on success, False otherwise
     def iterate_raw_live(self):
