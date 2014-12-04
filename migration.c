@@ -104,7 +104,7 @@ int qemu_start_incoming_migration(const char *uri, Error **errp)
     const char *p;
     int ret;
 
-    debug_print_timestamp("qemu_start_incoming_migration:");
+    debug_print_timestamp("INCOMING_START");
 
     if (strstart(uri, "tcp:", &p))
         ret = tcp_start_incoming_migration(p, errp);
@@ -141,7 +141,7 @@ void process_incoming_migration(QEMUFile *f)
     /* Make sure all file formats flush their mutable metadata */
     bdrv_invalidate_cache_all();
 
-    debug_print_timestamp("process_incoming_migration: before autostart check");
+//    debug_print_timestamp("process_incoming_migration: before autostart check");
 
     if (autostart) {
         vm_start();
@@ -149,7 +149,7 @@ void process_incoming_migration(QEMUFile *f)
         runstate_set(RUN_STATE_PRELAUNCH);
     }
 
-    debug_print_timestamp("process_incoming_migration: after autostart check");
+    debug_print_timestamp("INCOMING_FINISH");
 }
 
 /* amount of nanoseconds we are willing to wait for migration to be down.
