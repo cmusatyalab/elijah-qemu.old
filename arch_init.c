@@ -716,6 +716,8 @@ int ram_load_raw(QEMUFile *f, void *opaque, int version_id) {
 		return -EINVAL;
 	}
 
+	debug_print_timestamp("ram_laod_raw: entered ");
+
 	do {
 		addr = qemu_get_be64(f);
 
@@ -762,11 +764,13 @@ int ram_load_raw(QEMUFile *f, void *opaque, int version_id) {
 
 				total_ram_bytes -= length;
 			}
+
+			debug_print_timestamp("ram_laod_raw: RAM_SAVE_FLAG_MEMS_SIZE processed ");
 		}
 
 		if (flags & RAM_SAVE_FLAG_RAW) {
 			RAMBlock *block;
-			char id[256];
+			char id[256], dbg_msg[256];
 			uint8_t len;
 			ram_addr_t padding;
 
@@ -809,6 +813,9 @@ int ram_load_raw(QEMUFile *f, void *opaque, int version_id) {
 			} else {
 				/* TODO: what to do if !block? */
 			}
+
+			snprintf(dbg_msg, 256, "%s: [%s] processed", __func__, block->idstr);
+			debug_print_timestamp(dbg_msg);
 		}
 
 		error = qemu_file_get_error(f);

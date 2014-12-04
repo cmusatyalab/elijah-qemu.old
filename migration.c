@@ -48,6 +48,29 @@ enum {
 static NotifierList migration_state_notifiers =
     NOTIFIER_LIST_INITIALIZER(migration_state_notifiers);
 
+static struct timespec get_curr_time(void)
+{
+    struct timespec t;
+
+    clock_gettime(CLOCK_REALTIME, &t);
+
+    return t;
+}
+
+void debug_print_timestamp(const char *msg)
+{
+#ifdef USE_MIGRATION_DEBUG_FILE
+    struct timespec t;
+
+    if (debug_file) {
+	t = get_curr_time();
+	fprintf(debug_file, "%s %ld.%06ld\n",
+		msg, t.tv_sec, t.tv_nsec / 1000);
+	fflush(debug_file);
+    }
+#endif
+}
+
 /* When we add fault tolerance, we could have several
    migrations at once.  For now we don't need to add
    dynamic creation of migration */
@@ -80,6 +103,8 @@ int qemu_start_incoming_migration(const char *uri, Error **errp)
 {
     const char *p;
     int ret;
+
+    debug_print_timestamp("qemu_start_incoming_migration:");
 
     if (strstart(uri, "tcp:", &p))
         ret = tcp_start_incoming_migration(p, errp);
@@ -116,11 +141,15 @@ void process_incoming_migration(QEMUFile *f)
     /* Make sure all file formats flush their mutable metadata */
     bdrv_invalidate_cache_all();
 
+    debug_print_timestamp("process_incoming_migration: before autostart check");
+
     if (autostart) {
         vm_start();
     } else {
         runstate_set(RUN_STATE_PRELAUNCH);
     }
+
+    debug_print_timestamp("process_incoming_migration: after autostart check");
 }
 
 /* amount of nanoseconds we are willing to wait for migration to be down.

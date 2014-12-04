@@ -2131,7 +2131,7 @@ int qemu_loadvm_state(QEMUFile *f)
     while ((section_type = qemu_get_byte(f)) != QEMU_VM_EOF) {
         uint32_t instance_id, version_id, section_id;
         SaveStateEntry *se;
-        char idstr[257];
+        char idstr[257], dbg_msg[256];
         int len;
 
         switch (section_type) {
@@ -2175,6 +2175,9 @@ int qemu_loadvm_state(QEMUFile *f)
                         instance_id, idstr);
                 goto out;
             }
+
+	    snprintf(dbg_msg, 256, "%s: [%s] processed", __func__, idstr);
+	    debug_print_timestamp(dbg_msg);
             break;
         case QEMU_VM_SECTION_PART:
         case QEMU_VM_SECTION_END:

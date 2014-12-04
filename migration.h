@@ -146,12 +146,14 @@ void set_blob_pos(QEMUFile *f, uint64_t pos);
 void reset_iter_seq(struct QEMUFile *);
 void inc_iter_seq(struct QEMUFile *);
 
-// #define USE_MIGRATION_DEBUG_FILE
+#define USE_MIGRATION_DEBUG_FILE
 
 #ifdef USE_MIGRATION_DEBUG_FILE
 extern FILE *debug_file;
 #define MIGRATION_DEBUG_FILE "/tmp/qemu_debug_messages"
 #endif
+
+void debug_print_timestamp(const char *msg);
 
 /*
  * comment this out to disable a randomized order of memory pages
