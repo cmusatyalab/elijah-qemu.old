@@ -1279,6 +1279,13 @@
 { 'command': 'stop-raw-live' }
 
 ##
+# @iterate-raw-live:
+#
+# Perform an interation in ongoing raw live migration.
+##
+{ 'command': 'iterate-raw-live' }
+
+##
 # @migrate_cancel
 #
 # Cancel the current executing migration process.

@@ -27,9 +27,11 @@
 #include <errno.h>
 #include <sys/time.h>
 #include <zlib.h>
+#include <stdint.h>
 
 /* Needed early for CONFIG_BSD etc. */
 #include "config-host.h"
+#include "main-loop.h"
 
 #ifndef _WIN32
 #include <sys/times.h>
@@ -173,6 +175,9 @@ void qemu_announce_self(void)
 
 #define BLOB_SIZE 4096
 typedef uint64_t blob_off_t;
+#define ITER_SEQ_BITS 16
+#define ITER_SEQ_SHIFT (sizeof(blob_off_t) * 8 - ITER_SEQ_BITS)
+#define BLOB_POS_MASK  ((((blob_off_t)1) << ITER_SEQ_SHIFT) - 1)
 
 struct QEMUFile {
     QEMUFilePutBufferFunc *put_buffer;
@@ -195,15 +200,28 @@ struct QEMUFile {
 
     blob_off_t blob_pos;
     blob_off_t blob_file_size;  /* first 8-byte header has this reported blob file size */
+    uint64_t   iter_seq;
+
     QemuMutex raw_live_state_lock;
+    QemuCond raw_live_state_cv;
     bool raw_live_stop_requested; /* protected by raw_live_state_lock */
+    bool raw_live_iterate_requested; /* protected by raw_live_state_lock */
 //    int debug_fd;
 };
 
-uint64_t get_blob_pos(struct QEMUFile *f);
 uint64_t get_blob_pos(struct QEMUFile *f)
 {
     return (uint64_t)f->blob_pos;
+}
+
+void reset_iter_seq(struct QEMUFile *f)
+{
+    f->iter_seq = 0;
+}
+
+void inc_iter_seq(struct QEMUFile *f)
+{
+    f->iter_seq++;
 }
 
 typedef struct QEMUFileStdio
@@ -462,8 +480,11 @@ QEMUFile *qemu_fopen_ops(void *opaque, QEMUFilePutBufferFunc *put_buffer,
     f->is_write = 0;
     f->blob_pos = 0;
     f->blob_file_size = 0;
+    f->iter_seq = 0;
     qemu_mutex_init(&f->raw_live_state_lock);
+    qemu_cond_init(&f->raw_live_state_cv);
     f->raw_live_stop_requested = false;
+    f->raw_live_iterate_requested = false;
 
 //    f->debug_fd = open("/tmp/debug.mem", O_WRONLY | O_CREAT | O_TRUNC, 0644);
 
@@ -576,6 +597,7 @@ int qemu_fclose(QEMUFile *f)
 //	close(f->debug_fd);
 
     qemu_mutex_destroy(&f->raw_live_state_lock);
+    qemu_cond_destroy(&f->raw_live_state_cv);
 
     /* If any error was spotted before closing, we should report it
      * instead of the close() return value.
@@ -609,8 +631,14 @@ void qemu_put_buffer(QEMUFile *f, const uint8_t *buf, size_t size)
 	    if (sizeof(blob_off_t) > IO_BUF_SIZE - f->buf_index)
 		qemu_fflush(f);
 
+	    if (f->blob_pos & ~BLOB_POS_MASK) {
+		fprintf(stderr, "blob offset %" PRIu64 " exceeds limit\n",
+			f->blob_pos);
+		abort();
+	    }
+
 	    header = (blob_off_t*)(f->buf + f->buf_index);
-	    *header = f->blob_pos;
+	    *header = f->blob_pos | (f->iter_seq << ITER_SEQ_SHIFT);
 	    f->buf_index += sizeof(blob_off_t);
 
 	    if (f->buf_index >= IO_BUF_SIZE)
@@ -651,8 +679,14 @@ void qemu_put_byte(QEMUFile *f, int v)
 	if (sizeof(blob_off_t) > IO_BUF_SIZE - f->buf_index)
 	    qemu_fflush(f);
 
+	    if (f->blob_pos & ~BLOB_POS_MASK) {
+		fprintf(stderr, "blob offset %" PRIu64 " exceeds limit\n",
+			f->blob_pos);
+		abort();
+	    }
+
 	header = (blob_off_t*)(f->buf + f->buf_index);
-	*header = f->blob_pos;
+	*header = f->blob_pos | (f->iter_seq << ITER_SEQ_SHIFT);
 	f->buf_index += sizeof(blob_off_t);
 
         if (f->buf_index >= IO_BUF_SIZE)
@@ -674,7 +708,6 @@ void qemu_put_byte(QEMUFile *f, int v)
 }
 
 /* Needs to be used with BLOB_SIZE-aligned pos */
-void set_blob_pos(QEMUFile *f, uint64_t pos);
 void set_blob_pos(QEMUFile *f, uint64_t pos)
 {
     void *padding = NULL;
@@ -1809,7 +1842,17 @@ int qemu_savevm_state_complete(QEMUFile *f)
     SaveStateEntry *se;
     int ret;
 
+    /*
+     * cpu_synchronize_all_states() is not called besides savevm code,
+     * and qmp_migrate is protected by a serialization lock.
+     * qemu_save_device_state() is called while executing non-live
+     * savevm handlers, it may case races. if that needs to be accoutned
+     * for, move qemu_mutex_unlock_iothread() after the iteration of
+     * non-live handlers.
+     */
+    qemu_mutex_lock_iothread();
     cpu_synchronize_all_states();
+    qemu_mutex_unlock_iothread();
 
     QTAILQ_FOREACH(se, &savevm_handlers, entry) {
 	/*
@@ -2088,7 +2131,7 @@ int qemu_loadvm_state(QEMUFile *f)
     while ((section_type = qemu_get_byte(f)) != QEMU_VM_EOF) {
         uint32_t instance_id, version_id, section_id;
         SaveStateEntry *se;
-        char idstr[257];
+        char idstr[257]; // dbg_msg[256];
         int len;
 
         switch (section_type) {
@@ -2132,6 +2175,9 @@ int qemu_loadvm_state(QEMUFile *f)
                         instance_id, idstr);
                 goto out;
             }
+
+//	    snprintf(dbg_msg, 256, "%s: [%s] processed", __func__, idstr);
+//	    debug_print_timestamp(dbg_msg);
             break;
         case QEMU_VM_SECTION_PART:
         case QEMU_VM_SECTION_END:
@@ -2584,6 +2630,10 @@ int qemu_savevm_dump_non_live(QEMUFile *f, bool suspend, bool print)
     int ret;
     uint64_t num_pages_expected;
 
+    /*
+     * note that this has to be done with iothread lock,
+     * if not suspended and not done within I/O thread.
+     */
     if (suspend)
 	cpu_synchronize_all_states();
 
@@ -2633,14 +2683,47 @@ int qemu_savevm_dump_non_live(QEMUFile *f, bool suspend, bool print)
     return num_pages_expected;
 }
 
-void wait_raw_live_stop(QEMUFile *f)
+void raw_live_stop(QEMUFile *f)
 {
     qemu_mutex_lock(&f->raw_live_state_lock);
     f->raw_live_stop_requested = true;
+    if (!f->raw_live_iterate_requested) {
+	f->raw_live_iterate_requested = true;
+	qemu_cond_broadcast(&f->raw_live_state_cv);
+    }
     qemu_mutex_unlock(&f->raw_live_state_lock);
 }
 
-bool check_notify_raw_live_stop(QEMUFile *f)
+void raw_live_iterate(QEMUFile *f)
+{
+    qemu_mutex_lock(&f->raw_live_state_lock);
+    if (!f->raw_live_iterate_requested) {
+	f->raw_live_iterate_requested = true;
+	qemu_cond_broadcast(&f->raw_live_state_cv);
+    }
+    qemu_mutex_unlock(&f->raw_live_state_lock);
+}
+
+void check_wait_raw_live_iterate(QEMUFile *f)
+{
+    qemu_mutex_lock(&f->raw_live_state_lock);
+    if (f->raw_live_iterate_requested) {
+	f->raw_live_iterate_requested = false;
+    } else {
+	for ( ; ; ) {
+	    qemu_cond_wait(&f->raw_live_state_cv,
+			   &f->raw_live_state_lock);
+
+	    if (f->raw_live_iterate_requested) {
+		f->raw_live_iterate_requested = false;
+		break;
+	    }
+	}
+    }
+    qemu_mutex_unlock(&f->raw_live_state_lock);
+}
+
+bool check_raw_live_stop(QEMUFile *f)
 {
     bool stopped = false;
 
@@ -2652,4 +2735,13 @@ bool check_notify_raw_live_stop(QEMUFile *f)
     qemu_mutex_unlock(&f->raw_live_state_lock);
 
     return stopped;
+}
+
+/* ignore iterate request, unless stop request has been issued */
+void clear_raw_live_iterate(QEMUFile *f)
+{
+    qemu_mutex_lock(&f->raw_live_state_lock);
+    if (f->raw_live_iterate_requested && !f->raw_live_stop_requested)
+	f->raw_live_iterate_requested = false;
+    qemu_mutex_unlock(&f->raw_live_state_lock);
 }

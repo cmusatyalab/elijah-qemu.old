@@ -40,11 +40,12 @@ typedef struct IOHandlerRecord {
     QLIST_ENTRY(IOHandlerRecord) next;
     int fd;
     bool deleted;
+    bool detach_on_read;
+    bool detached;
 } IOHandlerRecord;
 
 static QLIST_HEAD(, IOHandlerRecord) io_handlers =
     QLIST_HEAD_INITIALIZER(io_handlers);
-
 
 /* XXX: fd_read_poll should be suppressed, but an API change is
    necessary in the character devices to suppress fd_can_read(). */
@@ -77,6 +78,8 @@ int qemu_set_fd_handler2(int fd,
         ioh->fd_write = fd_write;
         ioh->opaque = opaque;
         ioh->deleted = 0;
+	ioh->detach_on_read = false;
+	ioh->detached = false;
     }
     return 0;
 }
@@ -99,9 +102,14 @@ void qemu_iohandler_fill(int *pnfds, fd_set *readfds, fd_set *writefds, fd_set *
         if (ioh->fd_read &&
             (!ioh->fd_read_poll ||
              ioh->fd_read_poll(ioh->opaque) != 0)) {
-            FD_SET(ioh->fd, readfds);
-            if (ioh->fd > *pnfds)
-                *pnfds = ioh->fd;
+	    if (!ioh->detached) {
+		FD_SET(ioh->fd, readfds);
+		if (ioh->fd > *pnfds)
+		    *pnfds = ioh->fd;
+
+		if (ioh->detach_on_read)
+		    ioh->detached = true;
+	    }
         }
         if (ioh->fd_write) {
             FD_SET(ioh->fd, writefds);

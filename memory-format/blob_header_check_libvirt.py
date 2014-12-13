@@ -5,10 +5,7 @@ import struct
 import argparse
 import sys
 
-# qemu writes each blob header as uint64_t, in native-endian
-BLOB_HEADER_FMT = "=Q"
-BLOB_SIZE       = 4096
-
+from blob_header_check import header_check
 
 class _QemuMemoryHeader(object):
     HEADER_MAGIC = 'LibvirtQemudSave'
@@ -55,80 +52,6 @@ class _QemuMemoryHeader(object):
 
     def seek_body(self, f):
         f.seek(self.HEADER_LENGTH + self._xml_len)
-
-
-def header_check(mem_file, out_file):
-    header_size = struct.calcsize(BLOB_HEADER_FMT)
-
-    # first 8 bytes is file size
-    header = mem_file.read(header_size)
-    if len(header) != header_size:
-        print "couldn't read valid file size header"
-        return
-    file_size, = struct.unpack(BLOB_HEADER_FMT, header)
-    print "memory snapshot size: %ld" % file_size
-
-    if (file_size % BLOB_SIZE) != 0:
-        print "reported file size (%d bytes) is not aligned at BLOB_SIZE boundary" % file_size
-        return
-
-    blobs = set()
-    blob_count = 0
-    while True:
-        header = mem_file.read(header_size)
-        if len(header) == 0:
-            break
-
-        if len(header) != header_size:
-            print "couldn't read valid blob header"
-            break
-        blob_offset, = struct.unpack(BLOB_HEADER_FMT, header)
-
-# check for sequentially written blobs
-#        if blob_offset != BLOB_SIZE * blob_count:
-#            print "blob offset doesn't match expected value ",
-#            print "(offset %d expected %d)" % (blob_offset, BLOB_SIZE * blob_count)
-#            return
-
-        if (blob_offset % BLOB_SIZE) != 0:
-            print "offset in blob header is not aligned"
-            return
-
-        blob = blob_offset / BLOB_SIZE
-        if blob in blobs:
-            print "duplicated blob at :%ld" % blob_offset
-            return
-        blobs.add(blob)
-
-        blob_count += 1
-
-#        if blob_count < 200:
-#            print "blob %d" % (blob_offset / BLOB_SIZE)
-
-        page = mem_file.read(BLOB_SIZE)
-
-        if out_file and len(page) > 0:
-            out_file.seek(blob_offset)
-            out_file.write(page)
-
-        # file is padded to multiple of BLOB_SIZE
-        if len(page) != BLOB_SIZE:
-            print "invalid blob size"
-            return
-
-    # check if all blobs up to max blob number are there
-    passed = True
-    for b in range(file_size / BLOB_SIZE):
-        if b not in blobs:
-            print "blob %d is missing"
-            passed = False
-            break
-
-    if passed:
-        print "test passed (%d blobs, %d processed)" % (file_size / BLOB_SIZE, blob_count)
-    else:
-        print "test failed (some blobs are missing)"
-
 
 def process_libvirt_header(mem_file_fd):
     libvirt_header = _QemuMemoryHeader(mem_file_fd)

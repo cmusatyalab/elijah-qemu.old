@@ -16,16 +16,13 @@ import time
 from multiprocessing import Process
 from qmp_af_unix import *
 
-# stop raw live after 20 seconds
 # NOTE: qemu doesn't erase unix socket file,
 # so might want to clean it up manually
 def delayed_stop():
-    waiting_time = 1
-    for index in range(waiting_time):
-        sys.stdout.write("waiting %d/%d seconds\n" % (index, waiting_time))
-        time.sleep(1)
+    time.sleep(35)
     qmp = QmpAfUnix(QMP_UNIX_SOCK)
-    qmp.stop_raw_live_once()
+    ts = qmp.iterate_raw_live_once()
+    print "VM suspended at %.6f" % ts
 
 
 class MemoryReadProcess(multiprocessing.Process):

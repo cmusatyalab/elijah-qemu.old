@@ -18,6 +18,7 @@
 #include "qemu-common.h"
 #include "notify.h"
 #include "error.h"
+#include "qemu-thread.h"
 
 typedef struct MigrationState MigrationState;
 
@@ -33,6 +34,9 @@ struct MigrationState
     void *opaque;
     int blk;
     int shared;
+    QemuThread raw_thread;
+    QemuMutex serial_lock;
+    bool ongoing;  /* protected by serial_lock */
 };
 
 #define QEMU_MMAP_MAX 16
@@ -127,7 +131,34 @@ uint64_t raw_dump_device_state(bool suspend, bool print);
 int qemu_savevm_dump_non_live(QEMUFile *f, bool suspend, bool print);
 void qemu_fopen_ops_buffered_wrapper(MigrationState *s);
 uint64_t raw_ram_total_pages(uint64_t total_device_size);
-void wait_raw_live_stop(QEMUFile *f);
-bool check_notify_raw_live_stop(QEMUFile *f);
+void raw_live_stop(QEMUFile *f);
+void raw_live_iterate(QEMUFile *f);
+void check_wait_raw_live_iterate(QEMUFile *f);
+bool check_raw_live_stop(QEMUFile *f);
+void clear_raw_live_iterate(QEMUFile *f);
+
+void init_migration_state(void);
+void clean_migration_state(void);
+
+uint64_t get_blob_pos(struct QEMUFile *f);
+void set_blob_pos(QEMUFile *f, uint64_t pos);
+
+void reset_iter_seq(struct QEMUFile *);
+void inc_iter_seq(struct QEMUFile *);
+
+#define USE_MIGRATION_DEBUG_FILE
+
+#ifdef USE_MIGRATION_DEBUG_FILE
+extern FILE *debug_file;
+#define MIGRATION_DEBUG_FILE "/tmp/qemu_debug_messages"
+#endif
+
+void debug_print_timestamp(const char *msg);
+
+/*
+ * comment this out to disable a randomized order of memory pages
+ * written in the first iteration of raw-live and raw-suspend.
+ */
+#define MIGRATION_RAW_RANDOMIZATION
 
 #endif

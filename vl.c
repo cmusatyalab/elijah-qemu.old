@@ -235,6 +235,9 @@ uint8_t *boot_splash_filedata;
 int boot_splash_filedata_size;
 uint8_t qemu_extra_params_fw[2];
 
+#ifdef USE_MIGRATION_DEBUG_FILE
+FILE *debug_file;
+#endif
 
 #define DEBUG_VL
 #ifdef DEBUG_VL
@@ -1585,7 +1588,7 @@ static void main_loop(void)
 
 static void version(void)
 {
-    printf("QEMU emulator version " QEMU_VERSION QEMU_PKGVERSION ", Copyright (c) 2003-2008 Fabrice Bellard, Cloudlet Edition\n");
+    printf("QEMU emulator version " QEMU_VERSION QEMU_PKGVERSION ", Copyright (c) 2003-2008 Fabrice Bellard, Cloudlet Edition 0.9\n");
 }
 
 static void help(int exitcode)
@@ -2317,6 +2320,10 @@ int main(int argc, char **argv, char **envp)
     };
     const char *trace_events = NULL;
     const char *trace_file = NULL;
+
+#ifdef USE_MIGRATION_DEBUG_FILE
+    debug_file = fopen(MIGRATION_DEBUG_FILE, "w");
+#endif
 
     atexit(qemu_run_exit_notifiers);
     error_set_progname(argv[0]);
@@ -3277,6 +3284,8 @@ int main(int argc, char **argv, char **envp)
     }
     loc_set_none();
 
+    init_migration_state();
+
     /* Init CPU def lists, based on config
      * - Must be called after all the qemu_read_config_file() calls
      * - Must be called before list_cpus()
@@ -3744,5 +3753,11 @@ int main(int argc, char **argv, char **envp)
     }
 
     cloudlet_end();
+
+#ifdef USE_MIGRATION_DEBUG_FILE
+    fclose(debug_file);
+#endif
+    clean_migration_state();
+
     return 0;
 }
