@@ -19,13 +19,9 @@ from qmp_af_unix import *
 # NOTE: qemu doesn't erase unix socket file,
 # so might want to clean it up manually
 def delayed_stop():
-    time.sleep(35)
     qmp = QmpAfUnix(QMP_UNIX_SOCK)
-    qmp.randomize_raw_live()  # randomize page output order
-#    qmp.unrandomize_raw_live()  # make page output order sequential
     ts = qmp.iterate_raw_live_once()
     print "VM suspended at %.6f" % ts
-
 
 class MemoryReadProcess(multiprocessing.Process):
     def __init__(self, input_path, result_queue):
@@ -77,6 +73,7 @@ def main(xml_path):
 
     p = Process(target=delayed_stop)
     p.start()
+    time.sleep(10)  # give time to process randomization request
 
     # process for receiving memory
     output_filename = "./memory-snapshot"

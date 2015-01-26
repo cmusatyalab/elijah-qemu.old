@@ -93,7 +93,13 @@ class QmpAfUnix:
     def iterate_raw_live_once(self):
         self.connect()
         ret = self.qmp_negotiate()
-        time.sleep(20)
+        ret = self.randomize_raw_live()  # randomize page output order
+        if ret:
+            print "Randomized page output order"
+        else:
+            print "Failed to randomize page output order"
+#       self.unrandomize_raw_live()  # make page output order sequential
+        time.sleep(40)
         if ret:
             print "iterating"
             ret = self.iterate_raw_live()
