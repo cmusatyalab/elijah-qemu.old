@@ -21,6 +21,8 @@ from qmp_af_unix import *
 def delayed_stop():
     time.sleep(35)
     qmp = QmpAfUnix(QMP_UNIX_SOCK)
+    qmp.randomize_raw_live()  # randomize page output order
+#    qmp.unrandomize_raw_live()  # make page output order sequential
     ts = qmp.iterate_raw_live_once()
     print "VM suspended at %.6f" % ts
 

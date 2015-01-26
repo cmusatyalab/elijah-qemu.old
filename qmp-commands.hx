@@ -1138,6 +1138,48 @@ Example:
 -> { "execute": "iterate-raw-live" }
 <- { "return": {} }
 
+EQMP
+
+    {
+        .name       = "randomize-raw-live",
+        .args_type  = "",
+        .mhandler.cmd_new = qmp_marshal_input_randomize_raw_live,
+    },
+
+SQMP
+randomize-raw-live
+----
+
+Randomize memory output order in raw live migration.
+
+Arguments: None.
+
+Example:
+
+-> { "execute": "randomize-raw-live" }
+<- { "return": {} }
+
+EQMP
+
+    {
+        .name       = "unrandomize-raw-live",
+        .args_type  = "",
+        .mhandler.cmd_new = qmp_marshal_input_unrandomize_raw_live,
+    },
+
+SQMP
+unrandomize-raw-live
+----
+
+Unrandomize memory output order in raw live migration.
+
+Arguments: None.
+
+Example:
+
+-> { "execute": "unrandomize-raw-live" }
+<- { "return": {} }
+
 
 3. Query Commands
 =================

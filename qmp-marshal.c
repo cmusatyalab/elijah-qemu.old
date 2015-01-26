@@ -1386,6 +1386,50 @@ out:
     return 0;
 }
 
+int qmp_marshal_input_randomize_raw_live(Monitor *mon, const QDict *qdict, QObject **ret)
+{
+    Error *local_err = NULL;
+    Error **errp = &local_err;
+    QDict *args = (QDict *)qdict;
+    (void)args;
+    if (error_is_set(errp)) {
+        goto out;
+    }
+    qmp_randomize_raw_live(errp);
+
+out:
+
+
+    if (local_err) {
+        qerror_report_err(local_err);
+        error_free(local_err);
+        return -1;
+    }
+    return 0;
+}
+
+int qmp_marshal_input_unrandomize_raw_live(Monitor *mon, const QDict *qdict, QObject **ret)
+{
+    Error *local_err = NULL;
+    Error **errp = &local_err;
+    QDict *args = (QDict *)qdict;
+    (void)args;
+    if (error_is_set(errp)) {
+        goto out;
+    }
+    qmp_unrandomize_raw_live(errp);
+
+out:
+
+
+    if (local_err) {
+        qerror_report_err(local_err);
+        error_free(local_err);
+        return -1;
+    }
+    return 0;
+}
+
 int qmp_marshal_input_migrate_cancel(Monitor *mon, const QDict *qdict, QObject **ret)
 {
     Error *local_err = NULL;

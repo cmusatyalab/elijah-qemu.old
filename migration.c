@@ -631,3 +631,19 @@ void qmp_iterate_raw_live(Error **err)
 
     raw_live_iterate(s->file);
 }
+
+void qmp_randomize_raw_live(Error **err)
+{
+    MigrationState *s;
+
+    s = migrate_get_current();
+    raw_live_randomize(s->file);
+}
+
+void qmp_unrandomize_raw_live(Error **err)
+{
+    MigrationState *s;
+
+    s = migrate_get_current();
+    raw_live_unrandomize(s->file);
+}

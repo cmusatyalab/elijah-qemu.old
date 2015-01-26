@@ -136,6 +136,9 @@ void raw_live_iterate(QEMUFile *f);
 void check_wait_raw_live_iterate(QEMUFile *f);
 bool check_raw_live_stop(QEMUFile *f);
 void clear_raw_live_iterate(QEMUFile *f);
+void raw_live_randomize(QEMUFile *f);
+void raw_live_unrandomize(QEMUFile *f);
+bool check_raw_live_random(QEMUFile *f);
 
 void init_migration_state(void);
 void clean_migration_state(void);
@@ -154,11 +157,5 @@ extern FILE *debug_file;
 #endif
 
 void debug_print_timestamp(const char *msg);
-
-/*
- * comment this out to disable a randomized order of memory pages
- * written in the first iteration of raw-live and raw-suspend.
- */
-#define MIGRATION_RAW_RANDOMIZATION
 
 #endif

@@ -61,6 +61,26 @@ class QmpAfUnix:
         else:
             return False
 
+    # returns True on success, False otherwise
+    def randomize_raw_live(self):
+        json_cmd = json.dumps({"execute":"randomize-raw-live"})
+        self.sock.sendall(json_cmd)
+        response = json.loads(self.sock.recv(1024))
+        if "return" in response:
+            return True
+        else:
+            return False
+
+    # returns True on success, False otherwise
+    def unrandomize_raw_live(self):
+        json_cmd = json.dumps({"execute":"unrandomize-raw-live"})
+        self.sock.sendall(json_cmd)
+        response = json.loads(self.sock.recv(1024))
+        if "return" in response:
+            return True
+        else:
+            return False
+
     def stop_raw_live_once(self):
         self.connect()
         ret = self.qmp_negotiate()
