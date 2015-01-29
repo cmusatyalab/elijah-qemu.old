@@ -634,24 +634,17 @@ void qmp_iterate_raw_live(Error **err)
 
 void qmp_randomize_raw_live(Error **err)
 {
-    MigrationState *s;
-
-    s = migrate_get_current();
-
 #ifdef USE_MIGRATION_DEBUG_FILE
     if (debug_file) {
-	fprintf(debug_file, "%s: MigrationState %p\n", __func__, s);
+	fprintf(debug_file, "%s: called\n", __func__);
 	fflush(debug_file);
     }
 #endif
 
-    raw_live_randomize(s->file);
+    raw_live_randomize();
 }
 
 void qmp_unrandomize_raw_live(Error **err)
 {
-    MigrationState *s;
-
-    s = migrate_get_current();
-    raw_live_unrandomize(s->file);
+    raw_live_unrandomize();
 }

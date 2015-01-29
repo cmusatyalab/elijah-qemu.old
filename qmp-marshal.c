@@ -24,8 +24,6 @@
 
 #include "qmp-commands.h"
 
-#include "migration.h"
-
 static void qmp_marshal_output_query_name(NameInfo * ret_in, QObject **ret_out, Error **errp)
 {
     QapiDeallocVisitor *md = qapi_dealloc_visitor_new();
@@ -1397,14 +1395,6 @@ int qmp_marshal_input_randomize_raw_live(Monitor *mon, const QDict *qdict, QObje
     if (error_is_set(errp)) {
         goto out;
     }
-
-#ifdef USE_MIGRATION_DEBUG_FILE
-    if (debug_file) {
-	fprintf(debug_file, "%s: called\n", __func__);
-	fflush(debug_file);
-    }
-#endif
-
     qmp_randomize_raw_live(errp);
 
 out:

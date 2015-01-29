@@ -206,7 +206,7 @@ struct QEMUFile {
     QemuCond raw_live_state_cv;
     bool raw_live_stop_requested;     /* protected by raw_live_state_lock */
     bool raw_live_iterate_requested;  /* protected by raw_live_state_lock */
-    bool raw_live_random;             /* protected by raw_live_state_lock */
+//    bool raw_live_random;             /* protected by raw_live_state_lock */
 //    int debug_fd;
 };
 
@@ -486,7 +486,7 @@ QEMUFile *qemu_fopen_ops(void *opaque, QEMUFilePutBufferFunc *put_buffer,
     qemu_cond_init(&f->raw_live_state_cv);
     f->raw_live_stop_requested = false;
     f->raw_live_iterate_requested = false;
-    f->raw_live_random = false;
+//    f->raw_live_random = false;
 
 //    f->debug_fd = open("/tmp/debug.mem", O_WRONLY | O_CREAT | O_TRUNC, 0644);
 
@@ -2748,36 +2748,49 @@ void clear_raw_live_iterate(QEMUFile *f)
     qemu_mutex_unlock(&f->raw_live_state_lock);
 }
 
-void raw_live_randomize(QEMUFile *f)
+QemuMutex raw_live_global_lock;
+bool raw_live_random = false;
+
+void init_raw_live(void)
 {
-    qemu_mutex_lock(&f->raw_live_state_lock);
-    if (!f->raw_live_random)
-	f->raw_live_random = true;
-    qemu_mutex_unlock(&f->raw_live_state_lock);
+    qemu_mutex_init(&raw_live_global_lock);
+}
+
+void clean_raw_live(void)
+{
+    qemu_mutex_destroy(&raw_live_global_lock);
+}
+
+void raw_live_randomize(void)
+{
+    qemu_mutex_lock(&raw_live_global_lock);
+    if (!raw_live_random)
+	raw_live_random = true;
+    qemu_mutex_unlock(&raw_live_global_lock);
 
 #ifdef USE_MIGRATION_DEBUG_FILE
 	if (debug_file) {
-	    fprintf(debug_file, "%s: set %d\n", __func__, f->raw_live_random);
+	    fprintf(debug_file, "%s: set %d\n", __func__, raw_live_random);
 	    fflush(debug_file);
 	}
 #endif
 }
 
-void raw_live_unrandomize(QEMUFile *f)
+void raw_live_unrandomize(void)
 {
-    qemu_mutex_lock(&f->raw_live_state_lock);
-    if (f->raw_live_random)
-	f->raw_live_random = false;
-    qemu_mutex_unlock(&f->raw_live_state_lock);
+    qemu_mutex_lock(&raw_live_global_lock);
+    if (raw_live_random)
+	raw_live_random = false;
+    qemu_mutex_unlock(&raw_live_global_lock);
 }
 
-bool check_raw_live_random(QEMUFile *f)
+bool check_raw_live_random(void)
 {
     bool randomized = false;
 
-    qemu_mutex_lock(&f->raw_live_state_lock);
-    randomized = f->raw_live_random;
-    qemu_mutex_unlock(&f->raw_live_state_lock);
+    qemu_mutex_lock(&raw_live_global_lock);
+    randomized = raw_live_random;
+    qemu_mutex_unlock(&raw_live_global_lock);
 
 #ifdef USE_MIGRATION_DEBUG_FILE
 	if (debug_file) {

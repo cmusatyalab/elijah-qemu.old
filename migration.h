@@ -136,9 +136,12 @@ void raw_live_iterate(QEMUFile *f);
 void check_wait_raw_live_iterate(QEMUFile *f);
 bool check_raw_live_stop(QEMUFile *f);
 void clear_raw_live_iterate(QEMUFile *f);
-void raw_live_randomize(QEMUFile *f);
-void raw_live_unrandomize(QEMUFile *f);
-bool check_raw_live_random(QEMUFile *f);
+void raw_live_randomize(void);
+void raw_live_unrandomize(void);
+bool check_raw_live_random(void);
+
+void init_raw_live(void);
+void clean_raw_live(void);
 
 void init_migration_state(void);
 void clean_migration_state(void);

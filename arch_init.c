@@ -493,7 +493,7 @@ int ram_save_raw_live(QEMUFile *f, int stage, void *opaque) {
 //		DPRINTF("%s: iteration %d stage %d\n",
 //			__func__, iterations, stage);
 
-		if (check_raw_live_random(f)) {
+		if (check_raw_live_random()) {
 			if (!page_order) {
 				RAMBlock *block = NULL;
 

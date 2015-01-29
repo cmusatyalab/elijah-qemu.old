@@ -3285,6 +3285,7 @@ int main(int argc, char **argv, char **envp)
     loc_set_none();
 
     init_migration_state();
+    init_raw_live();
 
     /* Init CPU def lists, based on config
      * - Must be called after all the qemu_read_config_file() calls
@@ -3758,6 +3759,7 @@ int main(int argc, char **argv, char **envp)
     fclose(debug_file);
 #endif
     clean_migration_state();
+    clean_raw_live();
 
     return 0;
 }
