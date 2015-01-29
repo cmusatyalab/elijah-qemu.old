@@ -2754,6 +2754,13 @@ void raw_live_randomize(QEMUFile *f)
     if (!f->raw_live_random)
 	f->raw_live_random = true;
     qemu_mutex_unlock(&f->raw_live_state_lock);
+
+#ifdef USE_MIGRATION_DEBUG_FILE
+	if (debug_file) {
+	    fprintf(debug_file, "%s: set %d\n", __func__, f->raw_live_random);
+	    fflush(debug_file);
+	}
+#endif
 }
 
 void raw_live_unrandomize(QEMUFile *f)
@@ -2771,6 +2778,13 @@ bool check_raw_live_random(QEMUFile *f)
     qemu_mutex_lock(&f->raw_live_state_lock);
     randomized = f->raw_live_random;
     qemu_mutex_unlock(&f->raw_live_state_lock);
+
+#ifdef USE_MIGRATION_DEBUG_FILE
+	if (debug_file) {
+	    fprintf(debug_file, "%s: returning %d\n", __func__, randomized);
+	    fflush(debug_file);
+	}
+#endif
 
     return randomized;
 }

@@ -298,6 +298,7 @@ static uint64_t ram_save_raw_th(QEMUFile *f, void *opaque,
 				bool live, uint32_t *page_order) {
 	RAMBlock *block;
 	uint64_t last_blob_pos = 0;
+	static int debug_count = 0;
 
 	qemu_put_be64(f, ram_bytes_total() | RAM_SAVE_FLAG_MEM_SIZE);
 
@@ -352,6 +353,15 @@ static uint64_t ram_save_raw_th(QEMUFile *f, void *opaque,
 				offset = TARGET_PAGE_SIZE * page_order[i];
 			else
 				offset = TARGET_PAGE_SIZE * i;
+
+#ifdef USE_MIGRATION_DEBUG_FILE
+			if (debug_file && debug_count < 10) {
+				fprintf(debug_file, "%s: %lu\n", __func__, offset);
+				fflush(debug_file);
+
+				debug_count++;
+			}
+#endif
 
 			set_blob_pos(f, block->blob_pos + offset);
 
@@ -440,6 +450,13 @@ static uint32_t *generate_random_page_order(uint32_t num_pages)
 {
 	uint32_t i, j, temp, *random;
 
+#ifdef USE_MIGRATION_DEBUG_FILE
+	if (debug_file) {
+		fprintf(debug_file, "%s: num pages %u\n", __func__, num_pages);
+		fflush(debug_file);
+	}
+#endif
+
 	g_random_set_seed(12345);
 
 	random = g_malloc(sizeof(uint32_t) * num_pages);
@@ -499,6 +516,14 @@ int ram_save_raw_live(QEMUFile *f, int stage, void *opaque) {
 		}
 
 		memory_global_dirty_log_start();
+
+#ifdef USE_MIGRATION_DEBUG_FILE
+		if (debug_file) {
+			fprintf(debug_file, "%s: calling ram_save_raw_th() page_order %p\n",
+				__func__, page_order);
+			fflush(debug_file);
+		}
+#endif
 		last_blob_pos = ram_save_raw_th(f, opaque, true, page_order);
 		return 0;
 	} else {
@@ -508,6 +533,15 @@ int ram_save_raw_live(QEMUFile *f, int stage, void *opaque) {
 //		DPRINTF("%s: iteration %d stage %d\n",
 //			__func__, iterations, stage);
 		memory_global_sync_dirty_bitmap(get_system_memory());
+
+#ifdef USE_MIGRATION_DEBUG_FILE
+		if (debug_file) {
+			fprintf(debug_file, "%s: calling ram_save_raw_bh() page_order %p\n",
+				__func__, page_order);
+			fflush(debug_file);
+		}
+#endif
+
 		ram_save_raw_bh(f, opaque, page_order);
 		if (stage == 3) {
 			/*
