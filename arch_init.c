@@ -488,6 +488,14 @@ int ram_save_raw_live(QEMUFile *f, int stage, void *opaque) {
 		return 0;
 	}
 
+#ifdef USE_MIGRATION_DEBUG_FILE
+		if (debug_file) {
+			fprintf(debug_file, "%s: stage %d\n",
+				__func__, stage);
+			fflush(debug_file);
+		}
+#endif
+
 	if (stage == 1) {
 //		iterations = 1;
 //		DPRINTF("%s: iteration %d stage %d\n",
@@ -525,6 +533,15 @@ int ram_save_raw_live(QEMUFile *f, int stage, void *opaque) {
 		}
 #endif
 		last_blob_pos = ram_save_raw_th(f, opaque, true, page_order);
+
+#ifdef USE_MIGRATION_DEBUG_FILE
+		if (debug_file) {
+			fprintf(debug_file, "%s: returned from ram_save_raw_th() page_order %p\n",
+				__func__, page_order);
+			fflush(debug_file);
+		}
+#endif
+
 		return 0;
 	} else {
 		bool stage2_done = false;
