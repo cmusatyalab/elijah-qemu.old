@@ -637,6 +637,14 @@ void qmp_randomize_raw_live(Error **err)
     MigrationState *s;
 
     s = migrate_get_current();
+
+#ifdef USE_MIGRATION_DEBUG_FILE
+    if (debug_file) {
+	fprintf(debug_file, "%s: MigrationState %p\n", __func__, s);
+	fflush(debug_file);
+    }
+#endif
+
     raw_live_randomize(s->file);
 }
 
