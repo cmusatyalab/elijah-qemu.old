@@ -2749,7 +2749,7 @@ void clear_raw_live_iterate(QEMUFile *f)
 }
 
 QemuMutex raw_live_global_lock;
-bool raw_live_random = false;
+bool raw_live_random = true;
 
 void init_raw_live(void)
 {
