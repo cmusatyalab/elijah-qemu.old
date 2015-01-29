@@ -346,6 +346,13 @@ static uint64_t ram_save_raw_th(QEMUFile *f, void *opaque,
 
 		num_pages = block->length / TARGET_PAGE_SIZE;
 
+#ifdef USE_MIGRATION_DEBUG_FILE
+		if (debug_file) {
+			fprintf(debug_file, "%s: block %s pages %u\n", __func__, block->idstr, num_pages);
+			fflush(debug_file);
+		}
+#endif
+
 		for (i = 0; i < num_pages; i++) {
 			ram_addr_t offset;
 
