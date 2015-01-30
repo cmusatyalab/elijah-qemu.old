@@ -498,6 +498,7 @@ typedef struct RAMBlock {
     int fd;
 #endif
     uint64_t blob_pos;
+    uint32_t *migrate_order;
 } RAMBlock;
 
 typedef struct RAMList {
