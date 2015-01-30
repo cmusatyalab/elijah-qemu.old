@@ -297,7 +297,6 @@ static void sort_ram_list(void) {
 static uint64_t ram_save_raw_th(QEMUFile *f, void *opaque, bool live) {
 	RAMBlock *block;
 	uint64_t last_blob_pos = 0;
-	static int debug_count = 0;
 
 	qemu_put_be64(f, ram_bytes_total() | RAM_SAVE_FLAG_MEM_SIZE);
 
@@ -345,13 +344,6 @@ static uint64_t ram_save_raw_th(QEMUFile *f, void *opaque, bool live) {
 
 		num_pages = block->length / TARGET_PAGE_SIZE;
 
-#ifdef USE_MIGRATION_DEBUG_FILE
-		if (debug_file) {
-			fprintf(debug_file, "%s: block %s pages %u\n", __func__, block->idstr, num_pages);
-			fflush(debug_file);
-		}
-#endif
-
 		for (i = 0; i < num_pages; i++) {
 			ram_addr_t offset;
 
@@ -359,15 +351,6 @@ static uint64_t ram_save_raw_th(QEMUFile *f, void *opaque, bool live) {
 				offset = TARGET_PAGE_SIZE * block->migrate_order[i];
 			else
 				offset = TARGET_PAGE_SIZE * i;
-
-#ifdef USE_MIGRATION_DEBUG_FILE
-			if (debug_file && debug_count < 10) {
-				fprintf(debug_file, "%s: %lu\n", __func__, offset);
-				fflush(debug_file);
-
-				debug_count++;
-			}
-#endif
 
 			set_blob_pos(f, block->blob_pos + offset);
 
@@ -425,13 +408,6 @@ static void ram_save_raw_bh(QEMUFile *f, void *opaque) {
 	}
 	/* this flag has been written in top half */
 	// qemu_put_be64(f, RAM_SAVE_FLAG_EOS);
-
-#ifdef USE_MIGRATION_DEBUG_FILE
-	if (debug_file) {
-		fprintf(debug_file, "%s: wrote %d pages\n", __func__, count);
-		fflush(debug_file);
-	}
-#endif
 
 	/*
 	 * increment iteration number for next round, only when one or more
@@ -513,14 +489,6 @@ int ram_save_raw_live(QEMUFile *f, int stage, void *opaque) {
 		memory_global_dirty_log_stop();
 		return 0;
 	}
-
-#ifdef USE_MIGRATION_DEBUG_FILE
-		if (debug_file) {
-			fprintf(debug_file, "%s: stage %d\n",
-				__func__, stage);
-			fflush(debug_file);
-		}
-#endif
 
 	if (stage == 1) {
 //		iterations = 1;

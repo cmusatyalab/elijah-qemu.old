@@ -299,13 +299,6 @@ static void migrate_fd_put_ready(void *opaque)
 
     for ( ; ; ) {
 	check_wait_raw_live_iterate(f);
-#ifdef USE_MIGRATION_DEBUG_FILE
-	if (debug_file) {
-	    fprintf(debug_file, "%s: doing iteration\n",
-		    __func__);
-	    fflush(debug_file);
-	}
-#endif
 
 	DPRINTF("iterate\n");
 	ret = qemu_savevm_state_iterate(s->file);
@@ -634,13 +627,6 @@ void qmp_iterate_raw_live(Error **err)
 
 void qmp_randomize_raw_live(Error **err)
 {
-#ifdef USE_MIGRATION_DEBUG_FILE
-    if (debug_file) {
-	fprintf(debug_file, "%s: called\n", __func__);
-	fflush(debug_file);
-    }
-#endif
-
     raw_live_randomize();
 }
 
