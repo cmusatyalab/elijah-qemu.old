@@ -9,4 +9,3 @@
 #	--prefix=/home/krha/cloudlet/src/qemu-kvm/ 
 
 make -j4
-sudo make install
