@@ -2649,8 +2649,8 @@ int qemu_savevm_dump_non_live(QEMUFile *f, bool suspend, bool print)
 	if (!strcmp(se->idstr, "ram"))
 	    continue;
 
-	if (!strcmp(se->idstr, "virtio-net")) {
-	    total_size += 4096;
+	if (strstr(se->idstr, "/virtio-net") != NULL) {
+	    total_size += 2048;
 	    continue;
 	}
 
