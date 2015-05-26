@@ -1,5 +1,4 @@
 #!/usr/bin/env python 
-#
 
 import os
 import sys
@@ -8,74 +7,109 @@ import traceback
 import zipfile
 import subprocess
 import struct
-import select
 import threading
 import multiprocessing
+import time
 from xml.etree import ElementTree
 from xml.etree.ElementTree import Element
 
-import time
 from multiprocessing import Process
 from qmp_af_unix import *
 
-# NOTE: qemu doesn't erase unix socket file,
-# so might want to clean it up manually
+
+
 def delayed_stop():
     qmp = QmpAfUnix(QMP_UNIX_SOCK)
-    ts = qmp.iterate_raw_live_once()
-    print "VM suspended at %.6f" % ts
+    qmp.connect()
+    ret = qmp.qmp_negotiate()
+    ret = qmp.unrandomize_raw_live()  # make page output order sequential
+    if not ret:
+        print "Failed"
+        return
+    time.sleep(20); ret = qmp.iterate_raw_live()   # new iteration
+    time.sleep(10); ret = qmp.iterate_raw_live()   # new ieration
+    time.sleep(10); ret = qmp.stop_raw_live()      # stop migration
+    self.disconnect()
 
-#class MemoryReadProcess(multiprocessing.Process):
+
 class MemoryReadProcess(threading.Thread):
-    def __init__(self, input_path, result_queue):
-        self.input_path = input_path
-        self.result_queue = result_queue
-        self.total_read_size = 0
+    # header format for each memory page
+    CHUNK_HEADER_FMT = "=Q"
+    CHUNK_HEADER_SIZE = struct.calcsize("=Q")
+    ITER_SEQ_BITS   = 16
+    ITER_SEQ_SHIFT  = CHUNK_HEADER_SIZE * 8 - ITER_SEQ_BITS
+    CHUNK_POS_MASK   = (1 << ITER_SEQ_SHIFT) - 1
+    ITER_SEQ_MASK   = ((1 << (CHUNK_HEADER_SIZE * 8)) - 1) - CHUNK_POS_MASK
 
-        #super(MemoryReadProcess, self).__init__(target=self.read_mem_snapshot)
+    def __init__(self, input_path):
+        self.input_path = input_path
+        self.iteration_seq = 0
         threading.Thread.__init__(self, target=self.read_mem_snapshot)
 
-    def process_libvirt_header(self, mem_file_fd):
+    def process_header(self, mem_file_fd):
         data = mem_file_fd.read(4096*10)
         libvirt_header = _QemuMemoryHeaderData(data)
         header = libvirt_header.get_header()
-        import pdb;pdb.set_trace()
-        return libvirt_header._xml, data[len(header):]
+        header_size = len(header)
+
+        # read 8 bytes of qemu header
+        snapshot_size_data = data[header_size:header_size+self.CHUNK_HEADER_SIZE]
+        snapshot_size, = struct.unpack(self.CHUNK_HEADER_FMT,
+                                       snapshot_size_data)
+        remaining_data = data[len(header)+self.CHUNK_HEADER_SIZE:]
+        return libvirt_header.xml, snapshot_size, remaining_data
 
     def read_mem_snapshot(self):
-        # create memory snapshot aligned with 4KB
-        time_s = time.time()
-
+        # waiting for named pipe
         for repeat in xrange(100):
             if os.path.exists(self.input_path) == False:
                 print "waiting for %s: " % self.input_path
                 time.sleep(0.1)
+            else:
+                break
+
+        # read memory snapshot from the named pipe
         try:
             self.in_fd = open(self.input_path, 'rb')
             input_fd = [self.in_fd]
             # skip libvirt header
-            header_xml, remaining_data = self.process_libvirt_header(self.in_fd)
-            # read 8 bytes of qemu header (total size of memory snapshot)
-            import pdb;pdb.set_trace()
-            qemu_header = self.in_fd.read(8)
+            header_xml, snapshot_size, remaining_data =\
+                self.process_header(self.in_fd)
+            print "snapshot size of the first iteration: %d" % snapshot_size
 
+            # remaining data are all about memory page
+            # [(8 bytes header, 4KB page), (8 bytes header, 4KB page), ...]
+            chunk_size = self.CHUNK_HEADER_SIZE + 4096
+            leftover = self._data_chunking(remaining_data, chunk_size)
             while True:
-                input_ready, out_ready, err_ready = select.select(input_fd, [], [])
-                if self.in_fd in input_ready:
-                    data = self.in_fd.read(4096+8)
-                    if data == None or len(data) <= 0:
-                        break
-                    self.total_read_size += len(data)
-                    self.result_queue.put(data)
+                data = self.in_fd.read(10*4096)
+                if not data:
+                    break
+                leftover = self._data_chunking(leftover+data, chunk_size)
         except Exception, e:
             sys.stdout.write("[MemorySnapshotting] Exception1n")
             sys.stderr.write(traceback.format_exc())
             sys.stderr.write("%s\n" % str(e))
-
-        time_e = time.time()
-        sys.stdout.write("[time] Memory snapshotting time : %f\n" % (time_e-time_s))
-        self.result_queue.put("SNAPSHOT_END")
         self.finish()
+
+    def _data_chunking(self, l, n):
+        leftover = ''
+        for index in range(0, len(l), n):
+            chunked_data = l[index:index+n]
+            chunked_data_size = len(chunked_data)
+            if chunked_data_size == n:
+                header = chunked_data[0:self.CHUNK_HEADER_SIZE]
+                header_data, = struct.unpack(self.CHUNK_HEADER_FMT, header)
+                iter_seq = (header_data& self.ITER_SEQ_MASK) >> self.ITER_SEQ_SHIFT
+                ram_offset = (header_data & self.CHUNK_POS_MASK)
+                print("iter #:%d\toffset:%ld" % (iter_seq, ram_offset))
+                if iter_seq != self.iteration_seq:
+                    self.iteration_seq = iter_seq
+                    print "start new iteration %d" % self.iteration_seq
+            else:
+                # last iteration
+                leftover = chunked_data
+        return leftover
 
     def finish(self):
         pass
@@ -141,7 +175,6 @@ class _QemuMemoryHeader(object):
         f.seek(0)
         f.write(struct.pack(self.HEADER_FORMAT, *header))
         f.write(struct.pack('%ds' % self._xml_len, self.xml))
-# pylint: enable=C0103
 
     def overwrite(self, f, new_xml):
         # Calculate header
@@ -226,7 +259,7 @@ class _QemuMemoryHeaderData(_QemuMemoryHeader):
 def main(xml_path):
     conn = libvirt.open("qemu:///session")
     machine = conn.createXML(open(xml_path, "r").read(), 0)
-    raw_input("VM started. Enter to suspend")
+    raw_input("VM started. Enter to start live migration")
 
     p = Process(target=delayed_stop)
     p.start()
@@ -239,8 +272,7 @@ def main(xml_path):
         os.remove(output_fifo)
     os.mkfifo(output_fifo)
     output_queue = multiprocessing.Queue(maxsize=-1)
-    memory_read_proc = MemoryReadProcess(output_fifo,
-                                         output_queue)
+    memory_read_proc = MemoryReadProcess(output_fifo)
     memory_read_proc.start()
 
     # start memory dump
@@ -248,17 +280,7 @@ def main(xml_path):
     p.join()
     if os.path.exists(output_fifo) == True:
         os.remove(output_fifo)
-
-    # save output queue to file
-    out_fd = open(output_filename, "wb+")
-    while True:
-        data = output_queue.get()
-        if data == "SNAPSHOT_END":
-            break
-        out_fd.write(data)
-    out_fd.close()
-
-
+    memory_read_proc.join()
     print "finish"
     return machine
 
