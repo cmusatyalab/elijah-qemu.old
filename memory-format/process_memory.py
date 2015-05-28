@@ -29,7 +29,7 @@ def delayed_stop():
     time.sleep(20); ret = qmp.iterate_raw_live()   # new iteration
     time.sleep(10); ret = qmp.iterate_raw_live()   # new ieration
     time.sleep(10); ret = qmp.stop_raw_live()      # stop migration
-    self.disconnect()
+    qmp.disconnect()
 
 
 class MemoryReadProcess(threading.Thread):
@@ -40,13 +40,15 @@ class MemoryReadProcess(threading.Thread):
     ITER_SEQ_SHIFT  = CHUNK_HEADER_SIZE * 8 - ITER_SEQ_BITS
     CHUNK_POS_MASK   = (1 << ITER_SEQ_SHIFT) - 1
     ITER_SEQ_MASK   = ((1 << (CHUNK_HEADER_SIZE * 8)) - 1) - CHUNK_POS_MASK
+    ALIGNED_HEADER_SIZE = 4096*2
 
-    def __init__(self, input_path):
+    def __init__(self, input_path, output_path):
         self.input_path = input_path
+        self.output_path = output_path
         self.iteration_seq = 0
         threading.Thread.__init__(self, target=self.read_mem_snapshot)
 
-    def process_header(self, mem_file_fd):
+    def process_header(self, mem_file_fd, output_fd):
         data = mem_file_fd.read(4096*10)
         libvirt_header = _QemuMemoryHeaderData(data)
         header = libvirt_header.get_header()
@@ -57,6 +59,10 @@ class MemoryReadProcess(threading.Thread):
         snapshot_size, = struct.unpack(self.CHUNK_HEADER_FMT,
                                        snapshot_size_data)
         remaining_data = data[len(header)+self.CHUNK_HEADER_SIZE:]
+
+        # write aligned header (8KB) to file
+        aligned_header = libvirt_header.get_aligned_header(self.ALIGNED_HEADER_SIZE)
+        output_fd.write(aligned_header)
         return libvirt_header.xml, snapshot_size, remaining_data
 
     def read_mem_snapshot(self):
@@ -71,10 +77,11 @@ class MemoryReadProcess(threading.Thread):
         # read memory snapshot from the named pipe
         try:
             self.in_fd = open(self.input_path, 'rb')
+            self.out_fd = open(self.output_path, 'wb')
             input_fd = [self.in_fd]
             # skip libvirt header
             header_xml, snapshot_size, remaining_data =\
-                self.process_header(self.in_fd)
+                self.process_header(self.in_fd, self.out_fd)
             print "snapshot size of the first iteration: %d" % snapshot_size
 
             # remaining data are all about memory page
@@ -102,10 +109,13 @@ class MemoryReadProcess(threading.Thread):
                 header_data, = struct.unpack(self.CHUNK_HEADER_FMT, header)
                 iter_seq = (header_data& self.ITER_SEQ_MASK) >> self.ITER_SEQ_SHIFT
                 ram_offset = (header_data & self.CHUNK_POS_MASK)
-                print("iter #:%d\toffset:%ld" % (iter_seq, ram_offset))
+                print("iter #:%d\toffset:%ld" % (iter_seq, ram_offset+self.ALIGNED_HEADER_SIZE))
                 if iter_seq != self.iteration_seq:
                     self.iteration_seq = iter_seq
                     print "start new iteration %d" % self.iteration_seq
+                # save the snapshot data
+                self.out_fd.seek(ram_offset + self.ALIGNED_HEADER_SIZE)
+                self.out_fd.write(chunked_data[self.CHUNK_HEADER_SIZE:])
             else:
                 # last iteration
                 leftover = chunked_data
@@ -272,7 +282,7 @@ def main(xml_path):
         os.remove(output_fifo)
     os.mkfifo(output_fifo)
     output_queue = multiprocessing.Queue(maxsize=-1)
-    memory_read_proc = MemoryReadProcess(output_fifo)
+    memory_read_proc = MemoryReadProcess(output_fifo, output_filename)
     memory_read_proc.start()
 
     # start memory dump
