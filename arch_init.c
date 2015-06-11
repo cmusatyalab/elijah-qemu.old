@@ -45,7 +45,7 @@
 #include "hw/pcspk.h"
 #include "cloudlet/qemu-cloudlet.h"
 
-//#define DEBUG_ARCH_INIT
+#define DEBUG_ARCH_INIT
 
 #ifdef DEBUG_ARCH_INIT
 #define DPRINTF(fmt, ...) \
@@ -125,9 +125,6 @@ const uint32_t arch_type = QEMU_ARCH;
 #define SPLAT(p)       (*(p) * (~0UL / 255))
 #define ALL_EQ(v1, v2) ((v1) == (v2))
 #endif
-
-int qemu_mmap_idx = 0;
-struct qemu_mmap_entry qemu_mmap_entries[QEMU_MMAP_MAX];
 
 static struct defconfig_file {
 	const char *filename;
@@ -288,9 +285,10 @@ static void sort_ram_list(void) {
 		QLIST_REMOVE(block, next);
 	}
 	qsort(blocks, n, sizeof *blocks, block_compar);
-	while (--n >= 0) {
+
+	while (--n >= 0)
 		QLIST_INSERT_HEAD(&ram_list.blocks, blocks[n], next);
-	}
+
 	g_free(blocks);
 }
 
@@ -301,10 +299,6 @@ static uint64_t ram_save_raw_th(QEMUFile *f, void *opaque, bool live) {
 	qemu_put_be64(f, ram_bytes_total() | RAM_SAVE_FLAG_MEM_SIZE);
 
 	QLIST_FOREACH(block, &ram_list.blocks, next) {
-		// Do not save ivshmem
-		// if (strstr(block->idstr, "ivshmem.bar2") != NULL)
-		//	continue;
-
 		qemu_put_byte(f, strlen(block->idstr));
 		qemu_put_buffer(f, (uint8_t *) block->idstr, strlen(block->idstr));
 		qemu_put_be64(f, block->length);
@@ -316,10 +310,6 @@ static uint64_t ram_save_raw_th(QEMUFile *f, void *opaque, bool live) {
 		uint32_t num_pages;
 		ram_addr_t padding;
 
-		// Do not save ivshmem
-		// if (strstr(block->idstr, "ivshmem.bar2") != NULL)
-		//	continue;
-
 		qemu_put_be64(f, RAM_SAVE_FLAG_RAW);
 
 		qemu_put_byte(f, strlen(block->idstr));
@@ -327,20 +317,20 @@ static uint64_t ram_save_raw_th(QEMUFile *f, void *opaque, bool live) {
 
 		/*
 		 * Add padding so block is aligned at page boundary in saved file.
-		 * Padding needs to be calculated using get_blob_pos(), not qemu_ftell().
+		 * When live, padding needs to be calculated using get_blob_pos(),
+		 * not qemu_ftell().
 		 */
-		// padding = qemu_ftell(f) & (TARGET_PAGE_SIZE - 1);
-		padding = get_blob_pos(f) & (TARGET_PAGE_SIZE - 1);
+		if (qemu_file_blob_enabled(f))
+			padding = get_blob_pos(f) & (TARGET_PAGE_SIZE - 1);
+		else
+			padding = qemu_ftell(f) & (TARGET_PAGE_SIZE - 1);
 		padding = TARGET_PAGE_SIZE - padding;
 		while (padding-- > 0)
 			qemu_put_byte(f, 0);
 
-		// if (get_blob_pos(f) & (TARGET_PAGE_SIZE - 1))
-		//	DPRINTF("flushing block [%s] NOT aligned\n", block->idstr);
-
 		block->blob_pos = get_blob_pos(f);
-		DPRINTF("%s: [%s] block->blob_pos == %" PRIu64 "\n",
-			__func__, block->idstr, block->blob_pos);
+		EPRINTF("[%s] block->blob_pos == %" PRIu64 " block->length %lu\n",
+			block->idstr, block->blob_pos, block->length);
 
 		num_pages = block->length / TARGET_PAGE_SIZE;
 
@@ -367,6 +357,7 @@ static uint64_t ram_save_raw_th(QEMUFile *f, void *opaque, bool live) {
 
 	/* increment iteration number for next round */
 	inc_iter_seq(f);
+	EPRINTF("incremented iteration count: %" PRIu64 "\n", get_iter_seq(f));
 
 	/* return last blob offset for use after bottom half, to set correct position */
 	return last_blob_pos;
@@ -374,18 +365,14 @@ static uint64_t ram_save_raw_th(QEMUFile *f, void *opaque, bool live) {
 
 static void ram_save_raw_bh(QEMUFile *f, void *opaque) {
 	RAMBlock *block;
-	int count = 0;
 	uint32_t num_pages;
 	uint32_t i;
+	int count = 0;
 
 	/* flush all blocks */
 	QLIST_FOREACH(block, &ram_list.blocks, next) {
-		DPRINTF("%s: [%s] curr blob pos == %" PRIu64 "\n",
-			__func__, block->idstr, get_blob_pos(f));
-
-		// Do not save ivshmem
-		// if (strstr(block->idstr, "ivshmem.bar2") != NULL)
-		//	continue;
+		EPRINTF("[%s] block->blob_pos %lu curr blob pos: %" PRIu64 "\n",
+			block->idstr, block->blob_pos, get_blob_pos(f));
 
 		num_pages = block->length / TARGET_PAGE_SIZE;
 		for (i = 0; i < num_pages; i++) {
@@ -405,6 +392,9 @@ static void ram_save_raw_bh(QEMUFile *f, void *opaque) {
 				count++;
 			}
 		}
+
+		EPRINTF("wrote %d pages (cumulative) curr blob pos: %" PRIu64 "\n",
+			count, get_blob_pos(f));
 	}
 	/* this flag has been written in top half */
 	// qemu_put_be64(f, RAM_SAVE_FLAG_EOS);
@@ -413,8 +403,10 @@ static void ram_save_raw_bh(QEMUFile *f, void *opaque) {
 	 * increment iteration number for next round, only when one or more
 	 * pages have been written.
 	 */
-	if (count)
+	if (count) {
 		inc_iter_seq(f);
+		EPRINTF("incremented iteration count: %" PRIu64 "\n", get_iter_seq(f));
+	}
 
 	return;
 }
@@ -518,6 +510,7 @@ int ram_save_raw_live(QEMUFile *f, int stage, void *opaque) {
 			 * safe to do so as only live savevm handler is for ram.
 			 */
 			set_blob_pos(f, last_blob_pos);
+			EPRINTF("setting blob pos to %" PRIu64 "\n", last_blob_pos);
 			qemu_put_be64(f, RAM_SAVE_FLAG_EOS);
 			memory_global_dirty_log_stop();
 			free_migrate_order();
@@ -536,7 +529,7 @@ int ram_save_raw_live(QEMUFile *f, int stage, void *opaque) {
 	return 0; /* shouldn't reach here */
 }
 
-int ram_save_live(QEMUFile *f, int stage, void *opaque) {
+static int ram_save_live_orig(QEMUFile *f, int stage, void *opaque) {
 	ram_addr_t addr;
 	uint64_t bytes_transferred_last;
 	double bwidth = 0;
@@ -555,6 +548,7 @@ int ram_save_live(QEMUFile *f, int stage, void *opaque) {
 
 	if (stage == 1) {
 		RAMBlock *block;
+
 		bytes_transferred = 0;
 		last_block = NULL;
 		last_offset = 0;
@@ -562,6 +556,7 @@ int ram_save_live(QEMUFile *f, int stage, void *opaque) {
 
 		/* Make sure all dirty bits are set */
 		QLIST_FOREACH(block, &ram_list.blocks, next) {
+			EPRINTF("setting up dirty page tracking for block %s\n", block->idstr);
 			for (addr = 0; addr < block->length; addr += TARGET_PAGE_SIZE) {
 				if (!memory_region_get_dirty(block->mr, addr, TARGET_PAGE_SIZE,
 						DIRTY_MEMORY_MIGRATION)) {
@@ -571,10 +566,13 @@ int ram_save_live(QEMUFile *f, int stage, void *opaque) {
 		}
 
 		memory_global_dirty_log_start();
+		EPRINTF("writing ram bytes total %" PRIu64 "\n", ram_bytes_total());
 
 		qemu_put_be64(f, ram_bytes_total() | RAM_SAVE_FLAG_MEM_SIZE);
 
 		QLIST_FOREACH(block, &ram_list.blocks, next) {
+			EPRINTF("writing block info %s size %lu\n", block->idstr, block->length);
+
 			qemu_put_byte(f, strlen(block->idstr));
 			qemu_put_buffer(f, (uint8_t *) block->idstr, strlen(block->idstr));
 			qemu_put_be64(f, block->length);
@@ -594,7 +592,10 @@ int ram_save_live(QEMUFile *f, int stage, void *opaque) {
 		}
 	}
 
+	EPRINTF("got out of iteration over blocks\n");
+
 	if (ret < 0) {
+		EPRINTF("returning with error\n");
 		return ret;
 	}
 
@@ -625,8 +626,15 @@ int ram_save_live(QEMUFile *f, int stage, void *opaque) {
 	return (stage == 2) && (expected_time <= migrate_max_downtime());
 }
 
+int ram_save_live(QEMUFile *f, int stage, void *opaque) {
+	if (use_raw_live(f))
+		return ram_save_raw_live(f, stage, opaque);
+	else
+		return ram_save_live_orig(f, stage, opaque);
+}
+
 static inline void *host_from_stream_offset(QEMUFile *f, ram_addr_t offset,
-		int flags) {
+					    int flags) {
 	static RAMBlock *block = NULL;
 	char id[256];
 	uint8_t len;
@@ -649,6 +657,8 @@ static inline void *host_from_stream_offset(QEMUFile *f, ram_addr_t offset,
 			return memory_region_get_ram_ptr(block->mr) + offset;
 	}
 
+	EPRINTF("getting block [%s]\n", id);
+
 	fprintf(stderr, "Can't find block %s!\n", id);
 	return NULL;
 }
@@ -670,13 +680,13 @@ uint64_t raw_ram_total_pages(uint64_t total_device_size) {
 
 	num_bytes += (4 + 4); // QEMU_VM_FILE_MAGIC + QEMU_VM_FILE_VERSION
 	num_bytes += 1; // QEMU_VM_SECTION_FULL
+	num_bytes += 4; // se->section_id
 	num_bytes += (1 + strlen("ram") + 4 + 4); // se->idstr, se->instance_id, se->version_id
 
 	num_bytes += 8;  // RAM_SAVE_FLAG_MEM_SIZE
 
 	QLIST_FOREACH(block, &ram_list.blocks, next)
 		num_bytes += (1 + strlen(block->idstr) + 8);  // block->idstr
-
 
 	QLIST_FOREACH(block, &ram_list.blocks, next) {
 		if (first) {
@@ -710,36 +720,57 @@ uint64_t raw_ram_total_pages(uint64_t total_device_size) {
 
 #undef TOTAL_DEVICE_SIZE_SLACK
 
-static inline void *qemu_mmap_mem(QEMUFile *f, void *host, ram_addr_t length) {
+QEMUFile *qemu_memfile = NULL;
+
+static inline void *mmap_ram_block(QEMUFile *f, RAMBlock *block)
+{
 	int fd;
 	off_t offset;
 	void *addr;
+
+	// TODO: clean and make this safer
+	if (!qemu_memfile)
+		qemu_memfile = f;
 
 	fd = qemu_stdio_fd(f);
 	offset = (off_t) qemu_ftell(f);
 
 	// TODO: if possible avoid mallocing when registering pc ram, as
 	//       that region will be overwritten by this
-	addr = mmap(host, (size_t) length, PROT_EXEC | PROT_READ | PROT_WRITE,
-			MAP_PRIVATE | MAP_FIXED, fd, offset);
+	addr = mmap(block->host, (size_t)block->length,
+		    PROT_EXEC | PROT_READ | PROT_WRITE,
+		    MAP_PRIVATE | MAP_FIXED, fd, offset);
 
-	DPRINTF("qemu_mmap_mem(): host %p, length %lu, fd %d, offset %lu\n",
-			host, (size_t)length, fd, offset);
+	EPRINTF("qemu_mmap_mem(): host %p, length %lu, fd %d, offset %lu\n",
+		block->host, (size_t)block->length, fd, offset);
 
-	if (((long) addr) == -1)
+	qemu_fseek(f, block->length, SEEK_CUR);
+
+	if (((long) addr) == -1) {
 		perror("qemu_mmap_mem");
-
-	if (qemu_mmap_idx < QEMU_MMAP_MAX) {
-		DPRINTF("new mmap count %d\n", qemu_mmap_idx);
-		qemu_mmap_entries[qemu_mmap_idx].addr = host;
-		qemu_mmap_entries[qemu_mmap_idx].length = (size_t) length;
-		qemu_mmap_idx++;
-	}else{
-		perror("qemu_mmap_mem");
+		return NULL;
 	}
 
-
 	return addr;
+}
+
+void munmap_ram_blocks(void)
+{
+	RAMBlock *block = NULL;
+	int ret;
+
+	if (qemu_memfile) {
+		QLIST_FOREACH(block, &ram_list.blocks, next) {
+			ret = munmap(block->host, block->length);
+			if (ret < 0)
+				fprintf(stderr, "failed to munmap block %s\n", block->idstr);
+			else {
+				EPRINTF("munmaped block %s\n", block->idstr);
+			}
+		}
+
+		qemu_fclose(qemu_memfile);
+	}
 }
 
 int ram_load_raw(QEMUFile *f, void *opaque, int version_id) {
@@ -747,11 +778,8 @@ int ram_load_raw(QEMUFile *f, void *opaque, int version_id) {
 	int flags;
 	int error;
 
-	if (version_id != 4) {
+	if (version_id != 4)
 		return -EINVAL;
-	}
-
-//	debug_print_timestamp("ram_laod_raw: entered ");
 
 	do {
 		addr = qemu_get_be64(f);
@@ -759,8 +787,8 @@ int ram_load_raw(QEMUFile *f, void *opaque, int version_id) {
 		flags = addr & ~TARGET_PAGE_MASK;
 		addr &= TARGET_PAGE_MASK;
 
-		 DPRINTF("ram_load_raw(): reading at == %llu, addr: %ld, flag: %d\n",
-		 (unsigned long long) qemu_ftell(f), addr, flags);
+		EPRINTF("ram_load_raw(): reading at == %llu, addr: %ld, flag: %d\n",
+			(unsigned long long) qemu_ftell(f), addr, flags);
 
 		if (flags & RAM_SAVE_FLAG_MEM_SIZE) {
 			/* Synchronize RAM block list */
@@ -768,7 +796,7 @@ int ram_load_raw(QEMUFile *f, void *opaque, int version_id) {
 			ram_addr_t length;
 			ram_addr_t total_ram_bytes = addr;
 
-			DPRINTF("ram_load_raw(): total ram bytes == %llu MB\n",
+			EPRINTF("ram_load_raw(): total ram bytes == %llu MB\n",
 					((unsigned long long)total_ram_bytes) >> 20);
 
 			while (total_ram_bytes) {
@@ -793,7 +821,7 @@ int ram_load_raw(QEMUFile *f, void *opaque, int version_id) {
 							"accept migration\n", id);
 					return -EINVAL;
 				} else {
-					DPRINTF("Processing valid ramblock \"%s\", length == %llu\n",
+					EPRINTF("Processing valid ramblock \"%s\", length == %llu\n",
 							id, (unsigned long long) length);
 				}
 
@@ -824,33 +852,16 @@ int ram_load_raw(QEMUFile *f, void *opaque, int version_id) {
 					break;
 			}
 
-			 DPRINTF("ram_load_raw(): processing block -----------------\n");
-			 DPRINTF("id: %s  block->length: %llu\n",
-			 id, (unsigned long long)block->length);
-			 DPRINTF("---------------------------------------------------\n");
+			EPRINTF("ram_load_raw(): processing block -----------------\n");
+			EPRINTF("id: %s  block->length: %llu\n",
+				id, (unsigned long long)block->length);
+			EPRINTF("---------------------------------------------------\n");
 
-			if (block) {
-//				void *mapped_addr;
-
-//				DPRINTF("ram_load_raw(): mapping [%s], size: %llu, block->offset: %llu, host: %p\n",
-//					block->idstr, (unsigned long long)block->length, (unsigned long long) block->offset, block->host);
-
-//				mapped_addr = qemu_mmap_mem(f, (void *) block->host,
-//							    block->length);
-				qemu_mmap_mem(f, (void *) block->host,
-					      block->length);
-
-//				DPRINTF("ram_load_raw(): mapped [%s], host: %p\n",
-//					block->idstr, mapped_addr);
-
-				/* Adjust offset */
-				qemu_fseek(f, block->length, SEEK_CUR);
-			} else {
+			if (block)
+				mmap_ram_block(f, block);
+			else
 				/* TODO: what to do if !block? */
-			}
-
-//			snprintf(dbg_msg, 256, "%s: [%s] processed", __func__, block->idstr);
-//			debug_print_timestamp(dbg_msg);
+				return -EINVAL;
 		}
 
 		error = qemu_file_get_error(f);
@@ -894,10 +905,11 @@ int ram_load_live(QEMUFile *f, void *opaque, int version_id) {
 					length = qemu_get_be64(f);
 
 					QLIST_FOREACH(block, &ram_list.blocks, next) {
-						DPRINTF("load live, %s === %s\n", id, block->idstr);
 						if (!strncmp(id, block->idstr, sizeof(id))) {
-							if (block->length != length)
+							if (block->length != length) {
+								EPRINTF("block info error for %s\n", id);
 								return -EINVAL;
+							}
 							break;
 						}
 					}
@@ -907,6 +919,9 @@ int ram_load_live(QEMUFile *f, void *opaque, int version_id) {
 								"accept migration\n", id);
 						return -EINVAL;
 					}
+
+					EPRINTF("received block info for %s size %lu\n",
+						id, block->length);
 
 					total_ram_bytes -= length;
 				}
@@ -919,6 +934,7 @@ int ram_load_live(QEMUFile *f, void *opaque, int version_id) {
 
 			host = host_from_stream_offset(f, addr, flags);
 			if (!host) {
+				EPRINTF("returning with error\n");
 				return -EINVAL;
 			}
 
@@ -938,9 +954,12 @@ int ram_load_live(QEMUFile *f, void *opaque, int version_id) {
 		}
 		error = qemu_file_get_error(f);
 		if (error) {
+			EPRINTF("returning with error\n");
 			return error;
 		}
 	} while (!(flags & RAM_SAVE_FLAG_EOS));
+
+	EPRINTF("returning with RAM_SAVE_FLAG_EOS\n");
 
 	return 0;
 }

@@ -198,6 +198,7 @@ struct QEMUFile {
     int last_error;
     raw_type use_raw;
 
+    bool       use_blob;
     blob_off_t blob_pos;
     blob_off_t blob_file_size;  /* first 8-byte header has this reported blob file size */
     uint64_t   iter_seq;
@@ -206,8 +207,6 @@ struct QEMUFile {
     QemuCond raw_live_state_cv;
     bool raw_live_stop_requested;     /* protected by raw_live_state_lock */
     bool raw_live_iterate_requested;  /* protected by raw_live_state_lock */
-//    bool raw_live_random;             /* protected by raw_live_state_lock */
-//    int debug_fd;
 };
 
 uint64_t get_blob_pos(struct QEMUFile *f)
@@ -223,6 +222,11 @@ void reset_iter_seq(struct QEMUFile *f)
 void inc_iter_seq(struct QEMUFile *f)
 {
     f->iter_seq++;
+}
+
+uint64_t get_iter_seq(struct QEMUFile *f)
+{
+    return f->iter_seq;
 }
 
 typedef struct QEMUFileStdio
@@ -479,6 +483,7 @@ QEMUFile *qemu_fopen_ops(void *opaque, QEMUFilePutBufferFunc *put_buffer,
     f->set_rate_limit = set_rate_limit;
     f->get_rate_limit = get_rate_limit;
     f->is_write = 0;
+    f->use_blob = false;
     f->blob_pos = 0;
     f->blob_file_size = 0;
     f->iter_seq = 0;
@@ -486,11 +491,18 @@ QEMUFile *qemu_fopen_ops(void *opaque, QEMUFilePutBufferFunc *put_buffer,
     qemu_cond_init(&f->raw_live_state_cv);
     f->raw_live_stop_requested = false;
     f->raw_live_iterate_requested = false;
-//    f->raw_live_random = false;
-
-//    f->debug_fd = open("/tmp/debug.mem", O_WRONLY | O_CREAT | O_TRUNC, 0644);
 
     return f;
+}
+
+void qemu_file_enable_blob(QEMUFile *f)
+{
+    f->use_blob = true;
+}
+
+bool qemu_file_blob_enabled(QEMUFile *f)
+{
+    return f->use_blob;
 }
 
 int qemu_file_get_error(QEMUFile *f)
@@ -595,9 +607,6 @@ int qemu_fclose(QEMUFile *f)
     qemu_fflush(f);
     ret = qemu_close(f);
 
-//    if (f->debug_fd >= 0)
-//	close(f->debug_fd);
-
     qemu_mutex_destroy(&f->raw_live_state_lock);
     qemu_cond_destroy(&f->raw_live_state_cv);
 
@@ -627,7 +636,7 @@ void qemu_put_buffer(QEMUFile *f, const uint8_t *buf, size_t size)
     }
 
     while (!f->last_error && size > 0) {
-	if ((f->blob_pos % BLOB_SIZE) == 0) {
+	if (f->use_blob && (f->blob_pos % BLOB_SIZE) == 0) {
 	    blob_off_t *header = NULL;
 
 	    if (sizeof(blob_off_t) > IO_BUF_SIZE - f->buf_index)
@@ -651,15 +660,14 @@ void qemu_put_buffer(QEMUFile *f, const uint8_t *buf, size_t size)
         if (l > size)
             l = size;
 
-	if (l > (BLOB_SIZE - (f->blob_pos % BLOB_SIZE)))
+	if (f->use_blob && l > (BLOB_SIZE - (f->blob_pos % BLOB_SIZE)))
 	    l = (BLOB_SIZE - (f->blob_pos % BLOB_SIZE));
 
 	memcpy(f->buf + f->buf_index, buf, l);
-//	if (f->debug_fd >= 0)
-//	    write(f->debug_fd, buf, l);
         f->is_write = 1;
 	f->buf_index += l;
-	f->blob_pos += l;
+	if (f->use_blob)
+	    f->blob_pos += l;
         buf += l;
         size -= l;
         if (f->buf_index >= IO_BUF_SIZE)
@@ -675,17 +683,17 @@ void qemu_put_byte(QEMUFile *f, int v)
         abort();
     }
 
-    if ((f->blob_pos % BLOB_SIZE) == 0) {
+    if (f->use_blob && (f->blob_pos % BLOB_SIZE) == 0) {
 	blob_off_t *header = NULL;
 
 	if (sizeof(blob_off_t) > IO_BUF_SIZE - f->buf_index)
 	    qemu_fflush(f);
 
-	    if (f->blob_pos & ~BLOB_POS_MASK) {
-		fprintf(stderr, "blob offset %" PRIu64 " exceeds limit\n",
-			f->blob_pos);
-		abort();
-	    }
+	if (f->blob_pos & ~BLOB_POS_MASK) {
+	    fprintf(stderr, "blob offset %" PRIu64 " exceeds limit\n",
+		    f->blob_pos);
+	    abort();
+	}
 
 	header = (blob_off_t*)(f->buf + f->buf_index);
 	*header = f->blob_pos | (f->iter_seq << ITER_SEQ_SHIFT);
@@ -696,15 +704,9 @@ void qemu_put_byte(QEMUFile *f, int v)
     }
 
     f->buf[f->buf_index++] = v;
-//    {
-//	uint8_t b = v;
-//
-//	if (f->debug_fd >= 0)
-//	    write(f->debug_fd, &b, 1);
-//    }
-
     f->is_write = 1;
-    f->blob_pos += sizeof(*f->buf);
+    if (f->use_blob)
+	f->blob_pos += sizeof(*f->buf);
     if (f->buf_index >= IO_BUF_SIZE)
         qemu_fflush(f);
 }
@@ -713,6 +715,9 @@ void qemu_put_byte(QEMUFile *f, int v)
 void set_blob_pos(QEMUFile *f, uint64_t pos)
 {
     void *padding = NULL;
+
+    if (!f->use_blob)
+	return;
 
     if ((f->blob_pos % BLOB_SIZE) != 0) {
 	padding = g_malloc0(BLOB_SIZE - (f->blob_pos % BLOB_SIZE));
@@ -777,7 +782,8 @@ int qemu_get_buffer(QEMUFile *f, uint8_t *buf, int size)
         done += res;
     }
 
-    f->blob_pos += size;
+    if (f->use_blob)
+	f->blob_pos += size;
 
     return done;
 }
@@ -807,7 +813,8 @@ int qemu_get_byte(QEMUFile *f)
     result = qemu_peek_byte(f, 0);
     qemu_file_skip(f, 1);
 
-    f->blob_pos += 1;
+    if (f->use_blob)
+	f->blob_pos += 1;
 
     return result;
 }
@@ -824,7 +831,8 @@ int64_t qemu_fseek(QEMUFile *f, int64_t pos, int whence)
     if (whence == SEEK_SET) {
         /* nothing to do */
     } else if (whence == SEEK_CUR) {
-	blob_pos = f->blob_pos + pos;
+	if (f->use_blob)
+	    blob_pos = f->blob_pos + pos;
         pos += qemu_ftell(f);
     } else {
         /* SEEK_END not supported */
@@ -839,7 +847,8 @@ int64_t qemu_fseek(QEMUFile *f, int64_t pos, int whence)
         f->buf_size = 0;
     }
 
-    f->blob_pos = blob_pos;
+    if (f->use_blob)
+	f->blob_pos = blob_pos;
 
     return pos;
 }
@@ -1542,7 +1551,6 @@ int vmstate_load_state(QEMUFile *f, const VMStateDescription *vmsd,
 {
     VMStateField *field = vmsd->fields;
     int ret;
-    bool skip = false;
 
     if (version_id > vmsd->version_id) {
         return -EINVAL;
@@ -1557,11 +1565,6 @@ int vmstate_load_state(QEMUFile *f, const VMStateDescription *vmsd,
         int ret = vmsd->pre_load(opaque);
         if (ret)
             return ret;
-    }
-
-    if (!strcmp(vmsd->name, "mc146818rtc")) {
-//	    fprintf(stderr, "%s: skipping RTC state\n", __func__);
-	    skip = true;
     }
 
     while(field->name) {
@@ -1602,13 +1605,7 @@ int vmstate_load_state(QEMUFile *f, const VMStateDescription *vmsd,
                 if (field->flags & VMS_STRUCT) {
                     ret = vmstate_load_state(f, field->vmsd, addr, field->vmsd->version_id);
                 } else {
-					if (!skip)
-						ret = field->info->get(f, addr, size);
-					else {
-						qemu_fseek(f, size, SEEK_CUR);
-						ret = 0;
-					}
-
+		    ret = field->info->get(f, addr, size);
                 }
                 if (ret < 0) {
                     return ret;
@@ -1618,16 +1615,13 @@ int vmstate_load_state(QEMUFile *f, const VMStateDescription *vmsd,
         field++;
     }
 
-    if (!skip)
-	    ret = vmstate_subsection_load(f, vmsd, opaque);
-    else
-	    ret = 0;
-    if (ret != 0) {
+    ret = vmstate_subsection_load(f, vmsd, opaque);
+    if (ret != 0)
         return ret;
+    if (vmsd->post_load) {
+	return vmsd->post_load(opaque, version_id);
     }
-    if (vmsd->post_load && !skip) {
-        return vmsd->post_load(opaque, version_id);
-    }
+
     return 0;
 }
 
@@ -1731,15 +1725,28 @@ int qemu_savevm_state_begin(QEMUFile *f, int blk_enable, int shared)
     int ret;
     uint64_t num_pages, *header;
 
-    num_pages = raw_dump_device_state(false, false);
+    EPRINTF("called\n");
 
-    // no read buffer checking done, and assumes buf->index == 0 etc.
-    // i.e., we are the first and sole writer to this QEMUFile
-    header = (uint64_t*)(f->buf + f->buf_index);
-    *header = num_pages * TARGET_PAGE_SIZE;
+    if (use_raw_live(f)) {
+	EPRINTF("calling raw_dump_device_state()\n");
+
+	num_pages = raw_dump_device_state(false, false);
+
+	// no read buffer checking done, and assumes buf->index == 0 etc.
+	// i.e., we are the first and sole writer to this QEMUFile
+	header = (uint64_t*)(f->buf + f->buf_index);
+	*header = num_pages * TARGET_PAGE_SIZE;
+	f->buf_index += sizeof(uint64_t);
+	if (f->use_blob)
+	    f->blob_file_size = num_pages * TARGET_PAGE_SIZE;
+
+	EPRINTF("blob file size: %" PRIu64 "\n",
+		(uint64_t)num_pages * TARGET_PAGE_SIZE);
+    } else {
+	EPRINTF("skipping raw_dump_device_state()\n");
+    }
+
     f->is_write = 1;
-    f->buf_index += sizeof(uint64_t);
-    f->blob_file_size = num_pages * TARGET_PAGE_SIZE;
 
     QTAILQ_FOREACH(se, &savevm_handlers, entry) {
         if(se->set_params == NULL) {
@@ -1747,15 +1754,24 @@ int qemu_savevm_state_begin(QEMUFile *f, int blk_enable, int shared)
 	}
 	se->set_params(blk_enable, shared, se->opaque);
     }
+
+    EPRINTF("writing magic number\n");
     
     qemu_put_be32(f, QEMU_VM_FILE_MAGIC);
     qemu_put_be32(f, QEMU_VM_FILE_VERSION);
 
+    if (use_raw_suspend(f)) {
+	EPRINTF("skipping live handlers\n");
+	return 0;
+    }
+
     QTAILQ_FOREACH(se, &savevm_handlers, entry) {
         int len;
 
-        if (se->save_live_state == NULL || use_raw_suspend(f))
+        if (se->save_live_state == NULL)
             continue;
+
+	EPRINTF("calling live handler for [%s]\n", se->idstr);
 
         /* Section type */
 	/* treat this as QEMU_VM_SECTION_FULL when RAW_LIVE */
@@ -1765,6 +1781,8 @@ int qemu_savevm_state_begin(QEMUFile *f, int blk_enable, int shared)
 	    qemu_put_byte(f, QEMU_VM_SECTION_START);
 
 	qemu_put_be32(f, se->section_id);
+
+	EPRINTF("saving se [%s: id %d]\n", se->idstr, se->instance_id);
 
         /* ID string */
         len = strlen(se->idstr);
@@ -1779,6 +1797,8 @@ int qemu_savevm_state_begin(QEMUFile *f, int blk_enable, int shared)
             qemu_savevm_state_cancel(f);
             return ret;
         }
+
+	EPRINTF("saved se [%s: id %d]\n", se->idstr, se->instance_id);
     }
     ret = qemu_file_get_error(f);
     if (ret != 0) {
@@ -1786,7 +1806,6 @@ int qemu_savevm_state_begin(QEMUFile *f, int blk_enable, int shared)
     }
 
     return ret;
-
 }
 
 /*
@@ -1813,8 +1832,12 @@ int qemu_savevm_state_iterate(QEMUFile *f)
 	    (use_raw_live(f) && !strcmp(se->idstr, "block")))
             continue;
 
+	EPRINTF("calling live handler for [%s]\n", se->idstr);
+
 	/* don't write section header if raw live */
 	if (!use_raw_live(f)) {
+	    EPRINTF("writing QEMU_VM_SECTION_PART [%s]\n", se->idstr);
+
 	    /* Section type */
 	    qemu_put_byte(f, QEMU_VM_SECTION_PART);
 	    qemu_put_be32(f, se->section_id);
@@ -1839,7 +1862,7 @@ int qemu_savevm_state_iterate(QEMUFile *f)
     return ret;
 }
 
-int qemu_savevm_state_complete(QEMUFile *f)
+int qemu_savevm_state_complete(QEMUFile *f, bool threaded)
 {
     SaveStateEntry *se;
     int ret;
@@ -1848,13 +1871,15 @@ int qemu_savevm_state_complete(QEMUFile *f)
      * cpu_synchronize_all_states() is not called besides savevm code,
      * and qmp_migrate is protected by a serialization lock.
      * qemu_save_device_state() is called while executing non-live
-     * savevm handlers, it may case races. if that needs to be accoutned
+     * savevm handlers, it may cause races. if that needs to be accoutned
      * for, move qemu_mutex_unlock_iothread() after the iteration of
      * non-live handlers.
      */
-    qemu_mutex_lock_iothread();
+    if (threaded)
+	qemu_mutex_lock_iothread();
     cpu_synchronize_all_states();
-    qemu_mutex_unlock_iothread();
+    if (threaded)
+	qemu_mutex_unlock_iothread();
 
     QTAILQ_FOREACH(se, &savevm_handlers, entry) {
 	/*
@@ -1868,6 +1893,8 @@ int qemu_savevm_state_complete(QEMUFile *f)
 	    use_raw_suspend(f) ||
 	    (use_raw_live(f) && !strcmp(se->idstr, "block")))
             continue;
+
+	EPRINTF("calling live handler for [%s]\n", se->idstr);
 
 	/* don't write section footer if raw live */
 	if (!use_raw_live(f)) {
@@ -1888,11 +1915,13 @@ int qemu_savevm_state_complete(QEMUFile *f)
 	if (se->save_state == NULL && se->vmsd == NULL)
 	    continue;
 
-	if ((!strcmp(se->idstr, "ram")) && !use_raw_suspend(f)) {
-	    DPRINTF("%s: skipping RAM_SUSPEND savevm handler\n",
+	if ((!use_raw_suspend(f)) && !strcmp(se->idstr, "ram")) {
+	    EPRINTF("%s: skipping RAM_SUSPEND savevm handler\n",
 		    __func__);
 	    continue;
 	}
+
+	EPRINTF("calling savevm handler for [%s id %d]\n", se->idstr, se->section_id);
 
         /* Section type */
         qemu_put_byte(f, QEMU_VM_SECTION_FULL);
@@ -1909,9 +1938,13 @@ int qemu_savevm_state_complete(QEMUFile *f)
         vmstate_save(f, se);
     }
 
+    EPRINTF("writing QEMU_VM_EOF\n");
     qemu_put_byte(f, QEMU_VM_EOF);
 
-    if ((use_raw_suspend(f) || use_raw_live(f)) && (f->blob_file_size > 0)) {
+    if (use_raw_live(f) && (f->blob_file_size > 0)) {
+	EPRINTF("padding file at the end: at %lu diff %" PRId64 "\n",
+		f->blob_pos, ((int64_t)f->blob_file_size) - (int64_t)f->blob_pos);
+
 	if (f->blob_pos < f->blob_file_size) {
 	    void *padding = NULL;
 
@@ -1955,7 +1988,7 @@ static int qemu_savevm_state(QEMUFile *f)
             goto out;
     } while (ret == 0);
 
-    ret = qemu_savevm_state_complete(f);
+    ret = qemu_savevm_state_complete(f, false);
 
 out:
     if (ret == 0) {
@@ -2118,9 +2151,9 @@ int qemu_loadvm_state(QEMUFile *f)
     }
 
     v = qemu_get_be32(f);
-    if (v != QEMU_VM_FILE_MAGIC){
+    if (v != QEMU_VM_FILE_MAGIC) {
         return -EINVAL;
-	}
+    }
 
     v = qemu_get_be32(f);
     if (v == QEMU_VM_FILE_VERSION_COMPAT) {
@@ -2129,6 +2162,8 @@ int qemu_loadvm_state(QEMUFile *f)
     }
     if (v != QEMU_VM_FILE_VERSION)
         return -ENOTSUP;
+
+    EPRINTF("received magic and version numbers\n");
 
     while ((section_type = qemu_get_byte(f)) != QEMU_VM_EOF) {
         uint32_t instance_id, version_id, section_id;
@@ -2147,6 +2182,8 @@ int qemu_loadvm_state(QEMUFile *f)
             instance_id = qemu_get_be32(f);
             version_id = qemu_get_be32(f);
 
+	    EPRINTF("START|FULL loading: %s\n", idstr);
+
             /* Find savevm section */
             se = find_se(idstr, instance_id);
             if (se == NULL) {
@@ -2163,6 +2200,8 @@ int qemu_loadvm_state(QEMUFile *f)
                 goto out;
             }
 
+	    EPRINTF("START|FULL version checked: %s id %d\n", idstr, section_id);
+
             /* Add entry */
             le = g_malloc0(sizeof(*le));
 
@@ -2178,8 +2217,7 @@ int qemu_loadvm_state(QEMUFile *f)
                 goto out;
             }
 
-//	    snprintf(dbg_msg, 256, "%s: [%s] processed", __func__, idstr);
-//	    debug_print_timestamp(dbg_msg);
+	    EPRINTF("START|FULL loaded: %s id %d\n", idstr, section_id);
             break;
         case QEMU_VM_SECTION_PART:
         case QEMU_VM_SECTION_END:
@@ -2196,12 +2234,16 @@ int qemu_loadvm_state(QEMUFile *f)
                 goto out;
             }
 
+	    EPRINTF("PART|END loading: %d\n", le->section_id);
+
             ret = vmstate_load(f, le->se, le->version_id);
             if (ret < 0) {
                 fprintf(stderr, "qemu: warning: error while loading state section id %d\n",
                         section_id);
                 goto out;
             }
+
+	    EPRINTF("PART|END loaded: %d\n", section_id);
             break;
         default:
             fprintf(stderr, "Unknown savevm section type %d\n", section_type);
@@ -2213,6 +2255,7 @@ int qemu_loadvm_state(QEMUFile *f)
     cpu_synchronize_all_post_init();
 
     ret = 0;
+    EPRINTF("state loaded successfully\n");
 
 out:
     QLIST_FOREACH_SAFE(le, &loadvm_handlers, entry, new_le) {
@@ -2632,6 +2675,8 @@ int qemu_savevm_dump_non_live(QEMUFile *f, bool suspend, bool print)
     int ret;
     uint64_t num_pages_expected;
 
+    qemu_file_enable_blob(f);
+
     /*
      * note that this has to be done with iothread lock,
      * if not suspended and not done within I/O thread.
@@ -2649,6 +2694,8 @@ int qemu_savevm_dump_non_live(QEMUFile *f, bool suspend, bool print)
 	if (!strcmp(se->idstr, "ram"))
 	    continue;
 
+	/* skip virtio-net because its savevm handler
+	   has assert for checking guest suspension */
 	if (strstr(se->idstr, "/virtio-net") != NULL) {
 	    total_size += 2048;
 	    continue;

@@ -20,6 +20,16 @@
 #include "error.h"
 #include "qemu-thread.h"
 
+// #define DEBUG_ENLIGHTENED
+
+#ifdef DEBUG_ENLIGHTENED
+#define EPRINTF(fmt, ...)                                               \
+    do { fprintf(stderr, "[edbg] %s:%d: " fmt, __func__, __LINE__, ## __VA_ARGS__); } while (0)
+#else
+#define EPRINTF(fmt, ...)                       \
+    do { } while (0)
+#endif
+
 typedef struct MigrationState MigrationState;
 
 struct MigrationState
@@ -38,17 +48,6 @@ struct MigrationState
     QemuMutex serial_lock;
     bool ongoing;  /* protected by serial_lock */
 };
-
-#define QEMU_MMAP_MAX 16
-
-struct qemu_mmap_entry
-{
-	void *addr;
-	size_t length;
-};
-
-extern int qemu_mmap_idx;
-extern struct qemu_mmap_entry qemu_mmap_entries[QEMU_MMAP_MAX];
 
 typedef enum {
     RAW_NONE = 0,
@@ -151,6 +150,7 @@ void set_blob_pos(QEMUFile *f, uint64_t pos);
 
 void reset_iter_seq(struct QEMUFile *);
 void inc_iter_seq(struct QEMUFile *);
+uint64_t get_iter_seq(struct QEMUFile *f);
 
 #define USE_MIGRATION_DEBUG_FILE
 
@@ -160,5 +160,8 @@ extern FILE *debug_file;
 #endif
 
 void debug_print_timestamp(const char *msg);
+void qemu_file_enable_blob(QEMUFile *f);
+bool qemu_file_blob_enabled(QEMUFile *f);
+void munmap_ram_blocks(void);
 
 #endif

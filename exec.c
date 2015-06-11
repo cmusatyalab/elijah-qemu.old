@@ -2810,15 +2810,20 @@ void qemu_ram_remap(ram_addr_t addr, ram_addr_t length)
  */
 void *qemu_get_ram_ptr(ram_addr_t addr)
 {
-    RAMBlock *block;
+    static RAMBlock *block = NULL;
+    RAMBlock *last_block;
 
-    QLIST_FOREACH(block, &ram_list.blocks, next) {
+    if (!block)
+	block = QLIST_FIRST(&ram_list.blocks);
+
+    /* Remember last block and start from there on each invocation.
+       Originally found block was moved to the head of ram_list.blocks,
+       and that interfered with traversal in callers of this function.
+     */
+    last_block = block;
+
+    do {
         if (addr - block->offset < block->length) {
-            /* Move this entry to to start of the list.  */
-            if (block != QLIST_FIRST(&ram_list.blocks)) {
-                QLIST_REMOVE(block, next);
-                QLIST_INSERT_HEAD(&ram_list.blocks, block, next);
-            }
             if (xen_enabled()) {
                 /* We need to check if the requested address is in the RAM
                  * because we don't want to map the entire memory in QEMU.
@@ -2833,7 +2838,11 @@ void *qemu_get_ram_ptr(ram_addr_t addr)
             }
             return block->host + (addr - block->offset);
         }
-    }
+
+	block = QLIST_NEXT(block, next);
+	if (!block)
+	    block = QLIST_FIRST(&ram_list.blocks);
+    } while (block != last_block);
 
     fprintf(stderr, "Bad ram offset %" PRIx64 "\n", (uint64_t)addr);
     abort();

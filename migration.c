@@ -22,6 +22,7 @@
 #include "qemu_socket.h"
 #include "block-migration.h"
 #include "qmp-commands.h"
+#include "cloudlet/qemu-cloudlet.h"
 
 #include <glib.h>
 
@@ -113,11 +114,22 @@ int qemu_start_incoming_migration(const char *uri, Error **errp)
         ret =  exec_start_incoming_migration(p);
     else if (strstart(uri, "unix:", &p))
         ret = unix_start_incoming_migration(p);
-    else if (strstart(uri, "fd:", &p))
-        //ret = fd_start_incoming_migration(p);
-    	//ret = raw_start_incoming_migration(p, RAW_SUSPEND);
-    	ret = raw_start_incoming_migration(p, RAW_LIVE);
-    else if (strstart(uri, "raw:", &p))
+    else if (strstart(uri, "fd:", &p)) {
+	switch (cloudlet_raw_mode) {
+	case CLOUDLET_RAW_OFF:
+	    ret = fd_start_incoming_migration(p);
+	    break;
+	case CLOUDLET_RAW_SUSPEND:
+	    ret = raw_start_incoming_migration(p, RAW_SUSPEND);
+	    break;
+	case CLOUDLET_RAW_LIVE:
+	    ret = raw_start_incoming_migration(p, RAW_LIVE);
+	    break;
+	default:
+	    fprintf(stderr, "unknown migration protocol: %s\n", uri);
+	    ret = -EPROTONOSUPPORT;
+	}
+    } else if (strstart(uri, "raw:", &p))
     	ret = raw_start_incoming_migration(p, RAW_SUSPEND);
     else if (strstart(uri, "rawlive:", &p))
     	ret = raw_start_incoming_migration(p, RAW_LIVE);
@@ -136,7 +148,7 @@ void process_incoming_migration(QEMUFile *f)
         exit(0);
     }
     qemu_announce_self();
-    DPRINTF("successfully loaded vm state\n");
+    EPRINTF("successfully loaded vm state\n");
 
     bdrv_clear_incoming_migration_all();
     /* Make sure all file formats flush their mutable metadata */
@@ -292,15 +304,20 @@ static void migrate_fd_put_ready(void *opaque)
     int ret;
     QEMUFile *f = s->file;
 
+    EPRINTF("called\n");
+
     if (s->state != MIG_STATE_ACTIVE) {
         DPRINTF("put_ready returning because of non-active state\n");
         return;
     }
 
     for ( ; ; ) {
-	check_wait_raw_live_iterate(f);
+	if (use_raw_live(f)) {
+	    EPRINTF("waiting for raw live iteration\n");
+	    check_wait_raw_live_iterate(f);
+	}
 
-	DPRINTF("iterate\n");
+	EPRINTF("performing iteration\n");
 	ret = qemu_savevm_state_iterate(s->file);
 	if (ret < 0) {
 	    migrate_fd_error(s);
@@ -308,7 +325,7 @@ static void migrate_fd_put_ready(void *opaque)
 	} else if (ret == 1) {
 	    int old_vm_running = runstate_is_running();
 
-	    DPRINTF("done iterating\n");
+	    EPRINTF("done iterating\n");
 	    qemu_system_wakeup_request(QEMU_WAKEUP_REASON_OTHER);
 	    vm_stop_force_state(RUN_STATE_FINISH_MIGRATE);
 
@@ -316,9 +333,11 @@ static void migrate_fd_put_ready(void *opaque)
 	     * note last iteration writes frozen memory pages and
 	     * output of non-live savevm handlers
 	     */
-	    if (qemu_savevm_state_complete(s->file) < 0) {
+	    if (qemu_savevm_state_complete(s->file, true) < 0) {
+		EPRINTF("qemu_savevm_state_complete() returned with error\n");
 		migrate_fd_error(s);
 	    } else {
+		EPRINTF("qemu_savevm_state_complete() returned with success\n");
 		migrate_fd_completed(s);
 	    }
 	    if (s->state != MIG_STATE_COMPLETED) {
@@ -329,6 +348,8 @@ static void migrate_fd_put_ready(void *opaque)
 	    break;
 	}
     }
+
+    EPRINTF("returning\n");
 }
 
 static void migrate_fd_cancel(MigrationState *s)
@@ -402,29 +423,6 @@ bool migration_has_failed(MigrationState *s)
             s->state == MIG_STATE_ERROR);
 }
 
-void migrate_fd_connect(MigrationState *s)
-{
-    int ret;
-
-    s->state = MIG_STATE_ACTIVE;
-    s->file = qemu_fopen_ops_buffered(s,
-                                      s->bandwidth_limit,
-                                      migrate_fd_put_buffer,
-                                      migrate_fd_put_ready,
-                                      migrate_fd_wait_for_unfreeze,
-                                      migrate_fd_close);
-    set_use_raw(s->file, RAW_NONE);
-
-    DPRINTF("beginning savevm\n");
-    ret = qemu_savevm_state_begin(s->file, s->blk, s->shared);
-    if (ret < 0) {
-        DPRINTF("failed, %d\n", ret);
-        migrate_fd_error(s);
-        return;
-    }
-    migrate_fd_put_ready(s);
-}
-
 void qemu_fopen_ops_buffered_wrapper(MigrationState *s)
 {
     s->file = qemu_fopen_ops_buffered(s,
@@ -441,7 +439,8 @@ static void *raw_migrate_core(void *data)
     int ret;
 
     DPRINTF("beginning savevm\n");
-    reset_iter_seq(s->file);
+    if (use_raw_live(s->file))
+	reset_iter_seq(s->file);
     ret = qemu_savevm_state_begin(s->file, s->blk, s->shared);
     if (ret < 0) {
         DPRINTF("failed, %d\n", ret);
@@ -449,7 +448,8 @@ static void *raw_migrate_core(void *data)
         return NULL;
     }
     /* ignore iterate requests issued before top half finished */
-    clear_raw_live_iterate(s->file);
+    if (use_raw_live(s->file))
+	clear_raw_live_iterate(s->file);
 
     migrate_fd_put_ready(s);
 
@@ -458,6 +458,20 @@ static void *raw_migrate_core(void *data)
     qemu_mutex_unlock(&s->serial_lock);
 
     return NULL;
+}
+
+void migrate_fd_connect(MigrationState *s)
+{
+    s->state = MIG_STATE_ACTIVE;
+    s->file = qemu_fopen_ops_buffered(s,
+                                      s->bandwidth_limit,
+                                      migrate_fd_put_buffer,
+                                      migrate_fd_put_ready,
+                                      migrate_fd_wait_for_unfreeze,
+                                      migrate_fd_close);
+    set_use_raw(s->file, RAW_NONE);
+    qemu_thread_create(&s->raw_thread, raw_migrate_core,
+		       (void*)s, QEMU_THREAD_DETACHED);
 }
 
 void migrate_fd_connect_raw(MigrationState *s, raw_type type)
@@ -473,11 +487,11 @@ void migrate_fd_connect_raw(MigrationState *s, raw_type type)
                                       migrate_fd_close);
 
     set_use_raw(s->file, type);
+    if (use_raw_live(s->file))
+	qemu_file_enable_blob(s->file);
 
     qemu_thread_create(&s->raw_thread, raw_migrate_core,
 		       (void*)s, QEMU_THREAD_DETACHED);
-//    qemu_thread_create(&s->raw_thread, raw_migrate_core,
-//		       (void*)s, QEMU_THREAD_JOINABLE);
 }
 
 static MigrationState *migrate_init(int blk, int inc)
@@ -512,10 +526,17 @@ void qmp_migrate(const char *uri, bool has_blk, bool blk,
                  bool has_inc, bool inc, bool has_detach, bool detach,
                  Error **errp)
 {
-    DPRINTF("migration: start migration at %s\n", uri);
     MigrationState *s = migrate_get_current();
     const char *p;
     int ret;
+
+    EPRINTF("migration: start migration at %s\n", uri);
+
+    /* block device migration is disabled */
+    if (has_blk || blk || has_inc || inc) {
+	error_set(errp, QERR_INVALID_PARAMETER, "-b or -i");
+	return;
+    }
 
     qemu_mutex_lock(&s->serial_lock);
     if (s->ongoing) {
@@ -525,9 +546,6 @@ void qmp_migrate(const char *uri, bool has_blk, bool blk,
     }
     s->ongoing = true;
     qemu_mutex_unlock(&s->serial_lock);
-
-//    if (debug_file)
-//	fprintf(debug_file, "%s: called\n", __func__);
 
     if (s->state == MIG_STATE_ACTIVE) {
         error_set(errp, QERR_MIGRATION_ACTIVE);
@@ -553,8 +571,20 @@ void qmp_migrate(const char *uri, bool has_blk, bool blk,
     } else if (strstart(uri, "unix:", &p)) {
         ret = unix_start_outgoing_migration(s, p);
     } else if (strstart(uri, "fd:", &p)) {
-        //ret = fd_start_outgoing_migration(s, p);
-        ret = raw_start_outgoing_migration(s, p, RAW_LIVE);
+	switch (cloudlet_raw_mode) {
+	case CLOUDLET_RAW_OFF:
+	    ret = fd_start_outgoing_migration(s, p);
+	    break;
+	case CLOUDLET_RAW_SUSPEND:
+	    ret = raw_start_outgoing_migration(s, p, RAW_SUSPEND);
+	    break;
+	case CLOUDLET_RAW_LIVE:
+	    ret = raw_start_outgoing_migration(s, p, RAW_LIVE);
+	    break;
+	default:
+	    error_set(errp, QERR_INVALID_PARAMETER_VALUE, "uri", "a valid migration protocol");
+	    return;
+	}
     } else if (strstart(uri, "raw:", &p)) {
         ret = raw_start_outgoing_migration(s, p, RAW_SUSPEND);
     } else if (strstart(uri, "rawlive:", &p)) {
@@ -567,14 +597,13 @@ void qmp_migrate(const char *uri, bool has_blk, bool blk,
 
     if (ret < 0) {
         if (!error_is_set(errp)) {
-            DPRINTF("migration failed: %s\n", strerror(-ret));
+            EPRINTF("migration failed: %s\n", strerror(-ret));
             // FIXME: we should return meaningful errors
             error_set(errp, QERR_UNDEFINED_ERROR);
         }
         return;
     }
 
-    // currently used only for SPICE, so just ignore this
     notifier_list_notify(&migration_state_notifiers, s);
 }
 

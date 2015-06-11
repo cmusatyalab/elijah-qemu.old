@@ -284,12 +284,12 @@ QEMUFile *qemu_fopen_ops_buffered(void *opaque,
     s->close = close;
 
     s->file = qemu_fopen_ops(s, buffered_put_buffer, NULL,
-                             buffered_close, buffered_rate_limit,
+//                             buffered_close, buffered_rate_limit,
+                             buffered_close, NULL,
                              buffered_set_rate_limit,
 			     buffered_get_rate_limit);
 
 //    s->timer = qemu_new_timer_ms(rt_clock, buffered_rate_tick, s);
-
 //    qemu_mod_timer(s->timer, qemu_get_clock_ms(rt_clock) + 100);
 
     return s->file;

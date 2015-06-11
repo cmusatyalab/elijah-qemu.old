@@ -907,8 +907,6 @@ static void hmp_migrate_status_cb(void *opaque)
     qapi_free_MigrationInfo(info);
 }
 
-// extern FILE *debug_file;
-
 void hmp_migrate(Monitor *mon, const QDict *qdict)
 {
     int detach = qdict_get_try_bool(qdict, "detach", 0);
@@ -916,9 +914,6 @@ void hmp_migrate(Monitor *mon, const QDict *qdict)
     int inc = qdict_get_try_bool(qdict, "inc", 0);
     const char *uri = qdict_get_str(qdict, "uri");
     Error *err = NULL;
-
-//    if (debug_file)
-//	fprintf(debug_file, "%s: called\n", __func__);
 
     qmp_migrate(uri, !!blk, blk, !!inc, inc, false, false, &err);
     if (err) {

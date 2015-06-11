@@ -2736,7 +2736,7 @@ the @var{simple} tracing backend.
 ETEXI
 
 DEF("cloudlet", HAS_ARG, QEMU_OPTION_cloudlet,
-    "-cloudlet [logfile=<log file>]\n"
+    "-cloudlet [logfile=<log file>][,raw=off|suspend|live]\n"
     "                specify cloudlet options\n",
     QEMU_ARCH_ALL)
 STEXI

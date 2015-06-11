@@ -26,6 +26,8 @@ def header_check(mem_file, out_file):
         print "reported file size (%d bytes) is not aligned at BLOB_SIZE boundary" % file_size
         return
 
+    print "file size in header: %d" % file_size
+
     count_per_seq = {}
     blobs = set()
     blob_count = 0
@@ -61,7 +63,7 @@ def header_check(mem_file, out_file):
 
         # file is padded to multiple of BLOB_SIZE
         if len(page) != BLOB_SIZE:
-            print "invalid blob size"
+            print "invalid blob size for offset %d" % blob_offset
             return
 
     # check if all blobs up to max blob number are there

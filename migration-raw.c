@@ -140,8 +140,6 @@ static void raw_accept_incoming_migration(void *opaque)
 
     process_incoming_migration(f);
     qemu_set_fd_handler2(qemu_stdio_fd(f), NULL, NULL, NULL, NULL);
-    qemu_memfile = f;
-    // qemu_fclose(f);
 }
 
 int raw_start_incoming_migration(const char *infd, raw_type type)
@@ -150,10 +148,10 @@ int raw_start_incoming_migration(const char *infd, raw_type type)
     int val;
     QEMUFile *f;
     
-    DPRINTF("First attempt to start an incoming migration via fd to support libvirt\n");
+    EPRINTF("First attempt to start an incoming migration via fd to support libvirt\n");
     val = strtol(infd, NULL, 0);
     if ((errno == ERANGE && (val == INT_MAX|| val == INT_MIN)) || (val == 0)) {
-        DPRINTF("Unable to apply qemu wrapper to file descriptor, fd:%d\n", val);
+        EPRINTF("Unable to apply qemu wrapper to file descriptor, fd:%d\n", val);
 		DPRINTF("Attempting to start an incoming migration via raw\n");
 		fd = open(infd, O_RDONLY);
     } else {
@@ -169,7 +167,7 @@ int raw_start_incoming_migration(const char *infd, raw_type type)
     // read ahead external header file, e.g. libvirt header
     // to have mmap file for memory
     long start_offset = lseek(fd, 0, SEEK_CUR);
-    DPRINTF("Migration file start at %ld\n", start_offset);
+    EPRINTF("Migration file start at %ld\n", start_offset);
     qemu_fseek(f, start_offset, SEEK_CUR);
 
     set_use_raw(f, type);

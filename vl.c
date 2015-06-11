@@ -235,6 +235,8 @@ uint8_t *boot_splash_filedata;
 int boot_splash_filedata_size;
 uint8_t qemu_extra_params_fw[2];
 
+enum cloudlet_raw cloudlet_raw_mode = CLOUDLET_RAW_OFF;
+
 #ifdef USE_MIGRATION_DEBUG_FILE
 FILE *debug_file;
 #endif
@@ -2282,9 +2284,6 @@ int qemu_init_main_loop(void)
     return main_loop_init();
 }
 
-// TODO: Use QEMU Monitor
-QEMUFile *qemu_memfile = NULL;
-
 int main(int argc, char **argv, char **envp)
 {
     int i;
@@ -3174,23 +3173,45 @@ int main(int argc, char **argv, char **envp)
                 runstate_set(RUN_STATE_INMIGRATE);
                 break;
             case QEMU_OPTION_cloudlet:
-				opts = qemu_opts_parse(&qemu_cloudlet_opts, optarg, 1);
-				if (!opts) {
-					exit(1);
-				}
+	    {
+		const char *logfile_path = NULL;
+		const char *raw_mode = NULL;
 
-				const char *logfile_path = qemu_opt_get(opts, "logfile");
-				if (logfile_path){
-					if(!cloudlet_init(logfile_path)){
+		opts = qemu_opts_parse(&qemu_cloudlet_opts, optarg, 1);
+		if (!opts) {
+		    exit(1);
+		}
+
+		logfile_path = qemu_opt_get(opts, "logfile");
+		if (logfile_path) {
+		    if(!cloudlet_init(logfile_path)) {
                         fprintf(stderr, "open %s: %s\n", optarg, strerror(errno));
                         exit(1);
-					}
+		    }
                     fprintf(stderr, "cloudlet logfile path opened at : %s\n", logfile_path);
-				}else{
-                    fprintf(stderr, "cloudlet logfile path does not given\n");
-				}
+		} else {
+                    fprintf(stderr, "cloudlet logfile path not given\n");
+		}
+
+		raw_mode = qemu_opt_get(opts, "raw");
+		if (raw_mode) {
+		    if (!strcmp(raw_mode, "off")) {
+			cloudlet_raw_mode = CLOUDLET_RAW_OFF;
+			EPRINTF("raw option given: off\n");
+		    } else if (!strcmp(raw_mode, "suspend")) {
+			cloudlet_raw_mode = CLOUDLET_RAW_SUSPEND;
+			EPRINTF("raw option given: suspend\n");
+		    } else if (!strcmp(raw_mode, "live")) {
+			cloudlet_raw_mode = CLOUDLET_RAW_LIVE;
+			EPRINTF("raw option given: live\n");
+		    } else {
+			fprintf(stderr, "raw option usage: -cloudlet raw=off|suspend|live\n");
+			return 0;
+		    }
+		}
 
             	break;
+	    }
             case QEMU_OPTION_nodefaults:
                 default_serial = 0;
                 default_parallel = 0;
@@ -3515,7 +3536,7 @@ int main(int argc, char **argv, char **envp)
     default_drive(default_sdcard, snapshot, machine->use_scsi,
                   IF_SD, 0, SD_OPTS);
 
-    register_savevm_live(NULL, "ram", 0, 4, NULL, ram_save_raw_live,
+    register_savevm_live(NULL, "ram", 0, 4, NULL, ram_save_live,
 			 ram_save_raw, ram_load, NULL);
 //    register_savevm_live(NULL, "ram", 0, 4, NULL, NULL, ram_save_raw,
 //                         ram_load, NULL);
@@ -3739,19 +3760,7 @@ int main(int argc, char **argv, char **envp)
     net_cleanup();
     res_free();
 
-	DPRINTF("Start munmap\n");
-    if (qemu_memfile) {
-	    int i;
-	    for (i = 0; i < qemu_mmap_idx; i++){
-		    int ret = munmap(qemu_mmap_entries[i].addr, qemu_mmap_entries[i].length);
-			if (ret != 0){
-				fprintf(stderr, "failed to munmap, %s\n", strerror(errno));
-			}else{
-				DPRINTF("Unmap count : %d\n", i);
-			}
-		}
-	    qemu_fclose(qemu_memfile);
-    }
+    munmap_ram_blocks();
 
     cloudlet_end();
 
