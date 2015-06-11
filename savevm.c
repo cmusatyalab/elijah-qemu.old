@@ -1768,7 +1768,9 @@ int qemu_savevm_state_begin(QEMUFile *f, int blk_enable, int shared)
     QTAILQ_FOREACH(se, &savevm_handlers, entry) {
         int len;
 
-        if (se->save_live_state == NULL)
+	/* Skip block live handler when RAW_LIVE */
+        if (se->save_live_state == NULL ||
+	    (use_raw_live(f) && !strcmp(se->idstr, "block")))
             continue;
 
 	EPRINTF("calling live handler for [%s]\n", se->idstr);

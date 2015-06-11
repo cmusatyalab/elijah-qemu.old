@@ -532,12 +532,6 @@ void qmp_migrate(const char *uri, bool has_blk, bool blk,
 
     EPRINTF("migration: start migration at %s\n", uri);
 
-    /* block device migration is disabled */
-    if (has_blk || blk || has_inc || inc) {
-	error_set(errp, QERR_INVALID_PARAMETER, "-b or -i");
-	return;
-    }
-
     qemu_mutex_lock(&s->serial_lock);
     if (s->ongoing) {
         error_set(errp, QERR_MIGRATION_ACTIVE);
