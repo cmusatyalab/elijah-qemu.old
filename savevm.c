@@ -1725,11 +1725,7 @@ int qemu_savevm_state_begin(QEMUFile *f, int blk_enable, int shared)
     int ret;
     uint64_t num_pages, *header;
 
-    EPRINTF("called\n");
-
     if (use_raw_live(f)) {
-	EPRINTF("calling raw_dump_device_state()\n");
-
 	num_pages = raw_dump_device_state(false, false);
 
 	// no read buffer checking done, and assumes buf->index == 0 etc.
@@ -1739,11 +1735,6 @@ int qemu_savevm_state_begin(QEMUFile *f, int blk_enable, int shared)
 	f->buf_index += sizeof(uint64_t);
 	if (f->use_blob)
 	    f->blob_file_size = num_pages * TARGET_PAGE_SIZE;
-
-	EPRINTF("blob file size: %" PRIu64 "\n",
-		(uint64_t)num_pages * TARGET_PAGE_SIZE);
-    } else {
-	EPRINTF("skipping raw_dump_device_state()\n");
     }
 
     f->is_write = 1;
@@ -1755,15 +1746,11 @@ int qemu_savevm_state_begin(QEMUFile *f, int blk_enable, int shared)
 	se->set_params(blk_enable, shared, se->opaque);
     }
 
-    EPRINTF("writing magic number\n");
-    
     qemu_put_be32(f, QEMU_VM_FILE_MAGIC);
     qemu_put_be32(f, QEMU_VM_FILE_VERSION);
 
-    if (use_raw_suspend(f)) {
-	EPRINTF("skipping live handlers\n");
+    if (use_raw_suspend(f))
 	return 0;
-    }
 
     QTAILQ_FOREACH(se, &savevm_handlers, entry) {
         int len;
@@ -1773,8 +1760,6 @@ int qemu_savevm_state_begin(QEMUFile *f, int blk_enable, int shared)
 	    (use_raw_live(f) && !strcmp(se->idstr, "block")))
             continue;
 
-	EPRINTF("calling live handler for [%s]\n", se->idstr);
-
         /* Section type */
 	/* treat this as QEMU_VM_SECTION_FULL when RAW_LIVE */
 	if (use_raw_live(f))
@@ -1783,8 +1768,6 @@ int qemu_savevm_state_begin(QEMUFile *f, int blk_enable, int shared)
 	    qemu_put_byte(f, QEMU_VM_SECTION_START);
 
 	qemu_put_be32(f, se->section_id);
-
-	EPRINTF("saving se [%s: id %d]\n", se->idstr, se->instance_id);
 
         /* ID string */
         len = strlen(se->idstr);
@@ -1799,8 +1782,6 @@ int qemu_savevm_state_begin(QEMUFile *f, int blk_enable, int shared)
             qemu_savevm_state_cancel(f);
             return ret;
         }
-
-	EPRINTF("saved se [%s: id %d]\n", se->idstr, se->instance_id);
     }
     ret = qemu_file_get_error(f);
     if (ret != 0) {
@@ -1834,12 +1815,8 @@ int qemu_savevm_state_iterate(QEMUFile *f)
 	    (use_raw_live(f) && !strcmp(se->idstr, "block")))
             continue;
 
-	EPRINTF("calling live handler for [%s]\n", se->idstr);
-
 	/* don't write section header if raw live */
 	if (!use_raw_live(f)) {
-	    EPRINTF("writing QEMU_VM_SECTION_PART [%s]\n", se->idstr);
-
 	    /* Section type */
 	    qemu_put_byte(f, QEMU_VM_SECTION_PART);
 	    qemu_put_be32(f, se->section_id);
@@ -1896,8 +1873,6 @@ int qemu_savevm_state_complete(QEMUFile *f, bool threaded)
 	    (use_raw_live(f) && !strcmp(se->idstr, "block")))
             continue;
 
-	EPRINTF("calling live handler for [%s]\n", se->idstr);
-
 	/* don't write section footer if raw live */
 	if (!use_raw_live(f)) {
 	    /* Section type */
@@ -1917,13 +1892,8 @@ int qemu_savevm_state_complete(QEMUFile *f, bool threaded)
 	if (se->save_state == NULL && se->vmsd == NULL)
 	    continue;
 
-	if ((!use_raw_suspend(f)) && !strcmp(se->idstr, "ram")) {
-	    EPRINTF("%s: skipping RAM_SUSPEND savevm handler\n",
-		    __func__);
+	if ((!use_raw_suspend(f)) && !strcmp(se->idstr, "ram"))
 	    continue;
-	}
-
-	EPRINTF("calling savevm handler for [%s id %d]\n", se->idstr, se->section_id);
 
         /* Section type */
         qemu_put_byte(f, QEMU_VM_SECTION_FULL);
@@ -1940,13 +1910,9 @@ int qemu_savevm_state_complete(QEMUFile *f, bool threaded)
         vmstate_save(f, se);
     }
 
-    EPRINTF("writing QEMU_VM_EOF\n");
     qemu_put_byte(f, QEMU_VM_EOF);
 
     if (use_raw_live(f) && (f->blob_file_size > 0)) {
-	EPRINTF("padding file at the end: at %lu diff %" PRId64 "\n",
-		f->blob_pos, ((int64_t)f->blob_file_size) - (int64_t)f->blob_pos);
-
 	if (f->blob_pos < f->blob_file_size) {
 	    void *padding = NULL;
 
@@ -2165,8 +2131,6 @@ int qemu_loadvm_state(QEMUFile *f)
     if (v != QEMU_VM_FILE_VERSION)
         return -ENOTSUP;
 
-    EPRINTF("received magic and version numbers\n");
-
     while ((section_type = qemu_get_byte(f)) != QEMU_VM_EOF) {
         uint32_t instance_id, version_id, section_id;
         SaveStateEntry *se;
@@ -2184,8 +2148,6 @@ int qemu_loadvm_state(QEMUFile *f)
             instance_id = qemu_get_be32(f);
             version_id = qemu_get_be32(f);
 
-	    EPRINTF("START|FULL loading: %s\n", idstr);
-
             /* Find savevm section */
             se = find_se(idstr, instance_id);
             if (se == NULL) {
@@ -2202,8 +2164,6 @@ int qemu_loadvm_state(QEMUFile *f)
                 goto out;
             }
 
-	    EPRINTF("START|FULL version checked: %s id %d\n", idstr, section_id);
-
             /* Add entry */
             le = g_malloc0(sizeof(*le));
 
@@ -2219,7 +2179,6 @@ int qemu_loadvm_state(QEMUFile *f)
                 goto out;
             }
 
-	    EPRINTF("START|FULL loaded: %s id %d\n", idstr, section_id);
             break;
         case QEMU_VM_SECTION_PART:
         case QEMU_VM_SECTION_END:
@@ -2236,8 +2195,6 @@ int qemu_loadvm_state(QEMUFile *f)
                 goto out;
             }
 
-	    EPRINTF("PART|END loading: %d\n", le->section_id);
-
             ret = vmstate_load(f, le->se, le->version_id);
             if (ret < 0) {
                 fprintf(stderr, "qemu: warning: error while loading state section id %d\n",
@@ -2245,7 +2202,6 @@ int qemu_loadvm_state(QEMUFile *f)
                 goto out;
             }
 
-	    EPRINTF("PART|END loaded: %d\n", section_id);
             break;
         default:
             fprintf(stderr, "Unknown savevm section type %d\n", section_type);
@@ -2257,7 +2213,6 @@ int qemu_loadvm_state(QEMUFile *f)
     cpu_synchronize_all_post_init();
 
     ret = 0;
-    EPRINTF("state loaded successfully\n");
 
 out:
     QLIST_FOREACH_SAFE(le, &loadvm_handlers, entry, new_le) {

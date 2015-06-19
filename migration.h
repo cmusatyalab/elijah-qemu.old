@@ -20,16 +20,6 @@
 #include "error.h"
 #include "qemu-thread.h"
 
-// #define DEBUG_ENLIGHTENED
-
-#ifdef DEBUG_ENLIGHTENED
-#define EPRINTF(fmt, ...)                                               \
-    do { fprintf(stderr, "[edbg] %s:%d: " fmt, __func__, __LINE__, ## __VA_ARGS__); } while (0)
-#else
-#define EPRINTF(fmt, ...)                       \
-    do { } while (0)
-#endif
-
 typedef struct MigrationState MigrationState;
 
 struct MigrationState

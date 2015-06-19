@@ -3197,13 +3197,10 @@ int main(int argc, char **argv, char **envp)
 		if (raw_mode) {
 		    if (!strcmp(raw_mode, "off")) {
 			cloudlet_raw_mode = CLOUDLET_RAW_OFF;
-			EPRINTF("raw option given: off\n");
 		    } else if (!strcmp(raw_mode, "suspend")) {
 			cloudlet_raw_mode = CLOUDLET_RAW_SUSPEND;
-			EPRINTF("raw option given: suspend\n");
 		    } else if (!strcmp(raw_mode, "live")) {
 			cloudlet_raw_mode = CLOUDLET_RAW_LIVE;
-			EPRINTF("raw option given: live\n");
 		    } else {
 			fprintf(stderr, "raw option usage: -cloudlet raw=off|suspend|live\n");
 			return 0;

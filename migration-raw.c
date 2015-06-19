@@ -88,11 +88,6 @@ int raw_start_outgoing_migration(MigrationState *s, const char *fdname, raw_type
 
 	}
 
-//	if (fcntl(s->fd, F_SETFL, O_NONBLOCK) == -1) {
-//		DPRINTF("Unable to set nonblocking mode on file descriptor\n");
-//		goto err_after_open;
-//	}
-
     s->get_error = raw_errno;
     s->write = raw_write;
     s->close = raw_close;
@@ -100,39 +95,10 @@ int raw_start_outgoing_migration(MigrationState *s, const char *fdname, raw_type
     migrate_fd_connect_raw(s, type);
     return 0;
 
-// err_after_open:
     close(s->fd);
 err_after_get_fd:
     return -1;
 }
-
-/*
-int raw_start_outgoing_migration(MigrationState *s, const char *fdname, raw_type type)
-{
-    s->fd = open(fdname, O_CREAT | O_WRONLY | O_TRUNC, 00644);
-    if (s->fd == -1) {
-        DPRINTF("raw_migration: failed to open file\n");
-        goto err_after_get_fd;
-    }
-
-//    if (fcntl(s->fd, F_SETFL, O_NONBLOCK) == -1) {
-//        DPRINTF("Unable to set nonblocking mode on file descriptor\n");
-//        goto err_after_open;
-//    }
-
-    s->get_error = raw_errno;
-    s->write = raw_write;
-    s->close = raw_close;
-
-    migrate_fd_connect_raw(s, type);
-    return 0;
-
-// err_after_open:
-    close(s->fd);
-err_after_get_fd:
-    return -1;
-}
-*/
 
 static void raw_accept_incoming_migration(void *opaque)
 {
@@ -148,12 +114,10 @@ int raw_start_incoming_migration(const char *infd, raw_type type)
     int val;
     QEMUFile *f;
     
-    EPRINTF("First attempt to start an incoming migration via fd to support libvirt\n");
     val = strtol(infd, NULL, 0);
     if ((errno == ERANGE && (val == INT_MAX|| val == INT_MIN)) || (val == 0)) {
-        EPRINTF("Unable to apply qemu wrapper to file descriptor, fd:%d\n", val);
-		DPRINTF("Attempting to start an incoming migration via raw\n");
-		fd = open(infd, O_RDONLY);
+	DPRINTF("Attempting to start an incoming migration via raw\n");
+	fd = open(infd, O_RDONLY);
     } else {
         fd = val;
     }
@@ -167,7 +131,6 @@ int raw_start_incoming_migration(const char *infd, raw_type type)
     // read ahead external header file, e.g. libvirt header
     // to have mmap file for memory
     long start_offset = lseek(fd, 0, SEEK_CUR);
-    EPRINTF("Migration file start at %ld\n", start_offset);
     qemu_fseek(f, start_offset, SEEK_CUR);
 
     set_use_raw(f, type);
@@ -176,29 +139,6 @@ int raw_start_incoming_migration(const char *infd, raw_type type)
 
     return 0;
 }
-
-/*
-int raw_start_incoming_migration(const char *infd, raw_type type)
-{
-    int fd;
-    QEMUFile *f;
-
-    DPRINTF("Attempting to start an incoming migration via raw\n");
-
-    fd = open(infd, O_RDONLY);
-    f = qemu_fdopen(fd, "rb");
-    if(f == NULL) {
-        DPRINTF("Unable to apply qemu wrapper to file descriptor\n");
-        return -errno;
-    }
-
-    set_use_raw(f, type);
-
-    qemu_set_fd_handler2(fd, NULL, raw_accept_incoming_migration, NULL, f);
-
-    return 0;
-}
-*/
 
 /* stolen from migration.c */
 enum {
@@ -222,11 +162,6 @@ uint64_t raw_dump_device_state(bool suspend, bool print)
 	DPRINTF("raw_migration: failed to open file\n");
 	goto err_after_get_fd;
     }
-
-//    if (fcntl(s->fd, F_SETFL, O_NONBLOCK) == -1) {
-//	DPRINTF("Unable to set nonblocking mode on file descriptor\n");
-//	goto err_after_open;
-//    }
 
     s->get_error = raw_errno;
     s->write = raw_write;
